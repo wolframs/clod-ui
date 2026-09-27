@@ -1,0 +1,23 @@
+{
+  "name": "@clod-ui/test-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "readme": "./README.md",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "record-tape": "./bin/record-tape.ts"
+  },
+  "dependencies": {
+    "@clod-ui/contracts": "workspace:*",
+    "@clod-ui/backend": "workspace:*",
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
+  }
+}

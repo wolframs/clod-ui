@@ -1,0 +1,45 @@
+name: deep
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci-deep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # No-op today; key is in place so future PRs that enable L5 Playwright
+      # pick up cached browsers without churn.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: ci:deep
+        run: bun run ci:deep

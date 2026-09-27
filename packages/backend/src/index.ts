@@ -1,0 +1,10 @@
+export * from './types.ts';
+export { NotImplementedBackend } from './not-implemented.ts';
+export { RealClaudeBackend } from './real.ts';
+export type { RealClaudeBackendOptions } from './real.ts';
+export { compose, THINKING_EFFORT_MAP } from './compose.ts';
+export type { ComposeOptions, ComposeResult } from './compose.ts';
+export { parseStreamJsonLine, parseStreamJsonLines } from './parse-stream-json.ts';
+export type { BackendEventInput } from './parse-stream-json.ts';
+export { classifyCliFailure } from './classify-error.ts';
+export type { ClassifyInput } from './classify-error.ts';

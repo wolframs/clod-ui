@@ -1,0 +1,15 @@
+{
+  "name": "@clod-ui/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "readme": "./README.md",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@clod-ui/contracts": "workspace:*"
+  }
+}

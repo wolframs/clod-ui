@@ -1,0 +1,17 @@
+{
+  "cc_version": "test-0.0.0",
+  "recorded_at": 0,
+  "argv": ["-p", "--output-format", "stream-json", "--input-format", "stream-json"],
+  "env_redacted": {
+    "PATH": "/usr/bin"
+  },
+  "stdin_b64": "aGVsbG8=",
+  "events": [
+    { "ts_ms": 0, "line": "{\"type\":\"system.init\",\"session_id\":\"sess-abc\"}" },
+    { "ts_ms": 10, "line": "{\"type\":\"assistant.delta\",\"text\":\"Hi \"}" },
+    { "ts_ms": 15, "line": "{\"type\":\"assistant.delta\",\"text\":\"there!\"}" },
+    { "ts_ms": 20, "line": "{\"type\":\"turn.result\"}" }
+  ],
+  "stderr": [],
+  "exit_code": 0
+}

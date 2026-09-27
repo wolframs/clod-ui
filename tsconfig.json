@@ -1,0 +1,34 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@clod-ui/contracts": ["packages/contracts/src/index.ts"],
+      "@clod-ui/contracts/client": ["packages/contracts/src/client/index.ts"],
+      "@clod-ui/contracts/*": ["packages/contracts/src/*"],
+      "@clod-ui/backend": ["packages/backend/src/index.ts"],
+      "@clod-ui/backend/*": ["packages/backend/src/*"],
+      "@clod-ui/manifest": ["packages/manifest/src/index.ts"],
+      "@clod-ui/manifest/*": ["packages/manifest/src/*"],
+      "@clod-ui/settings": ["packages/settings/src/index.ts"],
+      "@clod-ui/settings/*": ["packages/settings/src/*"],
+      "@clod-ui/test-kit": ["packages/test-kit/src/index.ts"],
+      "@clod-ui/test-kit/*": ["packages/test-kit/src/*"],
+      "@clod-ui/transcripts": ["packages/transcripts/src/index.ts"],
+      "@clod-ui/transcripts/*": ["packages/transcripts/src/*"],
+      "@/*": ["apps/web/src/*"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*",
+    "packages/*/tests/**/*",
+    "packages/*/bin/**/*",
+    "apps/*/src/**/*",
+    "apps/web/vite.config.ts",
+    "tests/**/*",
+    "scripts/**/*"
+  ],
+  "exclude": ["**/dist", "**/node_modules"]
+}

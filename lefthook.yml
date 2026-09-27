@@ -1,0 +1,15 @@
+# lefthook.yml — git hooks runner
+# Bypass in emergencies with: LEFTHOOK=0 git commit ...
+
+pre-commit:
+  parallel: true
+  commands:
+    lint-staged:
+      run: bun run lint:staged
+    typecheck:
+      run: bun run typecheck
+
+pre-push:
+  commands:
+    ci-fast:
+      run: bun run ci:fast
