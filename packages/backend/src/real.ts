@@ -1,6 +1,11 @@
+import { tmpdir } from 'node:os';
+
+import type { ModelInfo } from '@clod-ui/contracts';
+
 import { classifyCliFailure } from './classify-error.ts';
 import { compose } from './compose.ts';
 import type { ComposeResult } from './compose.ts';
+import { controlResponseFor, initializeRequestLine, parseModelList } from './models.ts';
 import { parseStreamJsonLine } from './parse-stream-json.ts';
 import type {
   BackendEvent,
@@ -73,6 +78,9 @@ const RETIRE_KILL_MS = 500;
 /** stderr kept per turn (the tail; PR #40 §5). */
 const STDERR_CAP = 64 * 1024;
 const DEFAULT_WARM_MAX = 4;
+/** PR #42: how long a model list stays fresh, and how long one probe may take. */
+const MODELS_TTL_MS = 10 * 60 * 1000;
+const MODELS_PROBE_TIMEOUT_MS = 15_000;
 
 type Escalation = 'sigint' | 'sigterm' | 'sigkill';
 
@@ -167,7 +175,14 @@ export class RealClaudeBackend implements ClaudeBackend {
   /** Warm processes (PR #39), keyed by conv_id. */
   private readonly warm = new Map<string, ProcHandle>();
 
-  /** Every spawned process until it exits (PR #40): what `stop()` retires. */
+  /** PR #42: last model list, and the probe in flight (shared by callers). */
+  private modelsCache: { at: number; models: ModelInfo[] } | null = null;
+  private modelsInFlight: Promise<ModelInfo[]> | null = null;
+
+  /**
+   * Every spawned process until its retirement completes (PR #40, PR #43):
+   * what `stop()` retires and waits for.
+   */
   private readonly live = new Set<ProcHandle>();
 
   constructor(opts: RealClaudeBackendOptions = {}) {
@@ -547,9 +562,12 @@ export class RealClaudeBackend implements ClaudeBackend {
       stderr: '',
       stderrDone: Promise.resolve(),
     };
+    // Tracked until its whole process group is gone, not just the leader
+    // (PR #43): a leader that exits on its own still has its group swept,
+    // and stop() still waits for that sweep.
     this.live.add(handle);
     void proc.exited.then(() => {
-      this.live.delete(handle);
+      void this.retire(handle);
     });
     // The one stdout reader for the process's whole life (PR #40 §2): lines go
     // to the attached turn; with none attached they are strays.
@@ -628,6 +646,7 @@ export class RealClaudeBackend implements ClaudeBackend {
           await groupGoneWithin(proc, RETIRE_KILL_MS);
         }
       }
+      this.live.delete(handle);
     })();
     return handle.retiring;
   }
@@ -670,6 +689,79 @@ export class RealClaudeBackend implements ClaudeBackend {
     // Allow the event loop to exit even if the timers outlive the process.
     unrefTimer(turn.graceTermTimer);
     unrefTimer(turn.graceKillTimer);
+  }
+
+  /**
+   * The CLI's own model list (PR #42): spawn the configured binary with hooks
+   * disabled, send the stream-json `initialize` control request, read the
+   * reply, retire the process. Fresh for MODELS_TTL_MS; concurrent callers
+   * share one probe. Rejects when the CLI is missing, errors or times out.
+   */
+  async listModels(opts: { cwd?: string } = {}): Promise<ModelInfo[]> {
+    const cache = this.modelsCache;
+    if (cache !== null && Date.now() - cache.at < MODELS_TTL_MS) return cache.models;
+    if (this.modelsInFlight !== null) return this.modelsInFlight;
+    const probe = this.probeModels(opts.cwd ?? tmpdir()).then((models) => {
+      this.modelsCache = { at: Date.now(), models };
+      return models;
+    });
+    this.modelsInFlight = probe;
+    try {
+      return await probe;
+    } finally {
+      this.modelsInFlight = null;
+    }
+  }
+
+  private async probeModels(cwd: string): Promise<ModelInfo[]> {
+    if (this.cached.cli === 'missing') throw new Error(`claude binary not found at ${this.binary}`);
+    const argv = [
+      this.binary,
+      '-p',
+      '--input-format',
+      'stream-json',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      // A listing must not run the project's hooks (PR #42 evidence: with
+      // this, initialize runs none and writes no transcript).
+      '--settings',
+      JSON.stringify({ disableAllHooks: true }),
+    ];
+    const handle = this.spawnProcess({ argv, env: {}, cwd, stdin: new Uint8Array() }, false);
+    const sink = new LineQueue();
+    handle.owner = sink;
+    handle.sink = sink;
+    if (handle.exited) sink.push(null);
+    const requestId = `models-${Date.now()}`;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`model list probe timed out after ${MODELS_PROBE_TIMEOUT_MS}ms`)),
+        MODELS_PROBE_TIMEOUT_MS,
+      );
+    });
+    try {
+      const writer = handle.proc.stdin as unknown as StdinSink;
+      await Promise.resolve(
+        writer.write(new TextEncoder().encode(initializeRequestLine(requestId) + '\n')),
+      );
+      await Promise.resolve(writer.flush());
+      const read = (async (): Promise<ModelInfo[]> => {
+        for (;;) {
+          const line = await sink.next();
+          if (line === null) {
+            throw new Error(`CLI exited before answering initialize: ${handle.stderr.slice(-300)}`);
+          }
+          const response = controlResponseFor(line, requestId);
+          if (response !== undefined) return parseModelList(response);
+        }
+      })();
+      return await Promise.race([read, timeout]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      void this.retire(handle);
+    }
   }
 
   /** Expose cached-at for tests. */

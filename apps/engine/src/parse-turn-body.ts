@@ -9,7 +9,7 @@
  * error string the caller surfaces as 400.
  */
 import type { TurnRequest } from '@clod-ui/backend';
-import { ThinkingEffortSchema } from '@clod-ui/contracts';
+import { ThinkingEffortSchema, normalizeThinkingEffort } from '@clod-ui/contracts';
 
 export type ParsedTurn = { ok: true; value: TurnRequest } | { ok: false; error: string };
 
@@ -34,14 +34,15 @@ export function parseTurnBody(convId: string, body: Record<string, unknown>): Pa
   // vocabulary we own, so an unrecognized value is a 400 — silently
   // dropping it would silently change thinking depth on the spawned CLI.
   if (body['thinking_effort'] !== undefined) {
-    const effort = ThinkingEffortSchema.safeParse(body['thinking_effort']);
-    if (!effort.success) {
+    // PR #42: pre-#42 names (`think_hard`, …) are mapped, not rejected.
+    const effort = normalizeThinkingEffort(body['thinking_effort']);
+    if (effort === undefined) {
       return {
         ok: false,
         error: `thinking_effort must be one of: ${ThinkingEffortSchema.options.join(', ')}`,
       };
     }
-    req.thinking_effort = effort.data;
+    req.thinking_effort = effort;
   }
   if (typeof body['resume_session_id'] === 'string') {
     req.resume_session_id = body['resume_session_id'] as string;

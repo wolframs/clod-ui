@@ -11,16 +11,20 @@ import type { TurnRequest } from './types.ts';
  * `RealClaudeBackend.startTurn` (PR #4) and consumes this result verbatim.
  */
 
-/** Mapping from our internal thinking-effort enum to the CLI's `--effort` level. */
+/**
+ * Effort level → the CLI's `--effort` value (PR #42: the CLI's own names).
+ * `auto` sends no flag, so the model's default applies.
+ */
 export const THINKING_EFFORT_MAP: Readonly<
   Record<NonNullable<TurnRequest['thinking_effort']>, string | null>
 > = {
-  off: null,
-  think: 'low',
-  think_hard: 'medium',
-  think_harder: 'high',
-  xhigh: 'xhigh', // CLI 2.1.175 level, pinned by PR #37 evidence
-  ultrathink: 'max',
+  auto: null,
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh',
+  max: 'max',
+  ultracode: 'ultracode', // accepted by --effort though --help omits it (PR #42)
 };
 
 export interface ComposeOptions {

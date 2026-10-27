@@ -71,9 +71,11 @@ Naming convention: `YYYY-MM-DD-clod-ui-<pr-or-doc>-v<N>.md`.
 | #35 | [`pr35-orphan-sweeper-v1`](./landed/2026-06-12-clod-ui-pr35-orphan-sweeper-v1.md) | Phase 6b (goal S10): attachments orphan sweeper — pure planSweep + I-5 double-checked shell, dry-run default. |
 | #36 | [`pr36-ci-deep-v1`](./landed/2026-06-12-clod-ui-pr36-ci-deep-v1.md) | ci:deep de-stubbed (goal S11): Playwright five-scenario spec over real engine + ChaosBackend; startEngineServer extraction. |
 | #38 | [`pr38-tailnet-seat-v1`](./landed/2026-10-24-clod-ui-pr38-tailnet-seat-v1.md) | Same-origin guard (first Phase 8 seam), `CLOD_UI_CONVERSATION_CWD`, `CLOD_UI_CLAUDE_BINARY`; serves a project seat on the tailnet. |
-| #39 | [`pr39-warm-sessions-v1`](./2026-10-27-clod-ui-pr39-warm-sessions-v1.md) | One warm CLI process per conversation (SessionStart once, no per-turn boot); cache read/write in the usage badge; diagnostics `process`. |
-| #40 | [`pr40-warm-hardening-v1`](./2026-10-27-clod-ui-pr40-warm-hardening-v1.md) | Warm-session hardening: bounded awaitable retirement (EOF→TERM→KILL), one stdout pump with init gate, settle-before-yield, busy collision refused, `CLOD_UI_WARM_MAX`, stderr cap. |
-| #41 | [`pr41-warm-lifecycle-edges-v1`](./2026-10-27-clod-ui-pr41-warm-lifecycle-edges-v1.md) | Turn ownership token (a late `finally` can't retire the next turn's process); retirement done only when the whole process group is gone. |
+| #39 | [`pr39-warm-sessions-v1`](./landed/2026-10-27-clod-ui-pr39-warm-sessions-v1.md) | One warm CLI process per conversation (SessionStart once, no per-turn boot); cache read/write in the usage badge; diagnostics `process`. |
+| #40 | [`pr40-warm-hardening-v1`](./landed/2026-10-27-clod-ui-pr40-warm-hardening-v1.md) | Warm-session hardening: bounded awaitable retirement (EOF→TERM→KILL), one stdout pump with init gate, settle-before-yield, busy collision refused, `CLOD_UI_WARM_MAX`, stderr cap. |
+| #41 | [`pr41-warm-lifecycle-edges-v1`](./landed/2026-10-27-clod-ui-pr41-warm-lifecycle-edges-v1.md) | Turn ownership token (a late `finally` can't retire the next turn's process); retirement done only when the whole process group is gone. |
+| #42 | [`pr42-models-and-effort-v1`](./landed/2026-10-27-clod-ui-pr42-models-and-effort-v1.md) | The CLI's own model list (`GET /models` via the initialize control request) in the picker; effort = `/effort`'s levels (auto…max, ultracode), gated per model; spine T1.21. |
+| #43 | [`pr43-warm-review-fixes-v1`](./2026-10-27-clod-ui-pr43-warm-review-fixes-v1.md) | Warm review fixes: handles stay tracked until their group sweep ends (stop() waits; self-exiting leaders swept); raw session flags (`--resume s2`, `--fork-session`, …) block reuse. |
 
 ## Conventions
 

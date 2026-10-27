@@ -20,6 +20,7 @@ import {
 import { DiagnosticsResponseSchema, type DiagnosticsResponse } from '../diagnostics.ts';
 import type { EventEnvelope } from '../event-envelope.ts';
 import { HealthResponseSchema, type HealthResponse } from '../health.ts';
+import { ModelsResponseSchema, type ModelsResponse } from '../models.ts';
 import { ClaudeSettingsSchema, type ClaudeSettings } from '../settings.ts';
 import { SkillsResponseSchema, type SkillsResponse } from '../skills.ts';
 import { TranscriptResponseSchema, type TranscriptResponse } from '../transcript.ts';
@@ -117,6 +118,8 @@ export interface Client {
   getTranscript(conv_id: string, opts?: RequestOptions): Promise<TranscriptResponse>;
   /** Skills discovery (PR #31). 404 → ClientError.kind 'not_configured'. */
   getSkills(opts?: RequestOptions): Promise<SkillsResponse>;
+  /** The CLI's own model list (PR #42). 404 → 'not_configured'. */
+  getModels(opts?: RequestOptions): Promise<ModelsResponse>;
   /** Per-turn diagnostics ring (PR #32). 404 → 'not_configured'. */
   getDiagnostics(opts?: RequestOptions): Promise<DiagnosticsResponse>;
   /** Attachment intake (PR #33). 404 → 'not_configured'. */
@@ -227,6 +230,13 @@ export function createClient(opts: CreateClientOptions): Client {
         method: 'GET',
         path: '/skills',
         schema: SkillsResponseSchema,
+        ...(o?.signal ? { signal: o.signal } : {}),
+      }),
+    getModels: (o) =>
+      send({
+        method: 'GET',
+        path: '/models',
+        schema: ModelsResponseSchema,
         ...(o?.signal ? { signal: o.signal } : {}),
       }),
     getDiagnostics: (o) =>

@@ -1,6 +1,6 @@
 # Spine catalog
 
-The 49 tests across 20 contract files in [`tests/spine/`](../tests/spine/).
+The 52 tests across 21 contract files in [`tests/spine/`](../tests/spine/).
 Each contract is a _behavior_ the engine must preserve across PR
 churn — the spine gates every commit through `bun run ci:fast`.
 
@@ -39,8 +39,9 @@ and headers are authoritative.
 | T1.19 | [`T1.19-diagnostics-ring.test.ts`](../tests/spine/T1.19-diagnostics-ring.test.ts) | With diagnostics enabled, every accepted turn records redacted argv (system-prompt text never observable), env key names, stdin byte size, ordered event timeline, terminal outcome; `GET /diagnostics` lists most-recent-first within capacity; unconfigured → exact I-1 `404 { error: 'diagnostics not configured' }`. Wire-only (I-8). | 3 | #32 |
 
 | T1.20 | [`T1.20-attachments-intake.test.ts`](../tests/spine/T1.20-attachments-intake.test.ts) | `POST /conversations/:id/attachments` (JSON+base64, persistence-gated) writes sanitized, collision-suffixed files into the conversation's `attachments/` and returns typed metadata; turn-body `attachments` reach the backend and `compose()` emits the image stdin block + `--add-dir`; malformed body attachments → 400; serving never escapes the dir; unconfigured → exact I-1 404. | 4 | #33 |
+| T1.21 | [`T1.21-models-route.test.ts`](../tests/spine/T1.21-models-route.test.ts) | `GET /models` returns the backend's own model list (`{ models, fetched_at }`, schema-valid), probed in the conversations' cwd when configured; a backend without `listModels` → exact I-1 `404 { error: 'models not configured' }`; a failing probe → 502 with the reason. | 3 | #42 |
 
-**Total: 49 / 49 tests live across 20 contract files. 0 reserved.**
+**Total: 52 / 52 tests live across 21 contract files. 0 reserved.**
 
 ---
 

@@ -1,32 +1,47 @@
 import { z } from 'zod';
 
 /**
- * Per-turn control vocabulary shared by the turn POST body, the backend's
+ * Per-turn effort vocabulary shared by the turn POST body, the backend's
  * `TurnRequest`, and the web UI's controls.
  *
- * Spec: plans/2026-06-10-clod-ui-pr24-turn-controls-v1.md §D2.
+ * PR #42: exactly the CLI's own `/effort` levels (CLI 2.1.310). `'auto'`
+ * sends no `--effort` (the model's default); every other level passes
+ * through as `--effort <level>`. `'ultracode'` is accepted by `--effort`
+ * although `--help` does not list it: effort `xhigh` plus the CLI's
+ * multi-agent orchestration mode. The CLI warns and ignores unknown values;
+ * our 400-on-unknown (PR #24 D3) is deliberately stricter.
  *
- * `'off'` and an absent field are argv-identical — both compose to no
- * `--effort` flag (see `THINKING_EFFORT_MAP` in `@clod-ui/backend`). The
- * UI therefore never sends `'off'`; it stays in the enum for wire
- * compatibility with callers that want to be explicit.
- */
-/**
- * Vocabulary pinned by CLI 2.1.175 evidence (PR #37): `--effort` accepts
- * low | medium | high | xhigh | max. `'xhigh'` carries the CLI's own
- * level name — no invented synonym. Note the CLI *warns and ignores*
- * invalid values; our 400-on-unknown (PR #24 D3) is deliberately
- * stricter.
+ * Spec: plans/landed/2026-10-27-clod-ui-pr42-models-and-effort-v1.md §1.
  */
 export const ThinkingEffortSchema = z.enum([
-  'off',
-  'think',
-  'think_hard',
-  'think_harder',
+  'auto',
+  'low',
+  'medium',
+  'high',
   'xhigh',
-  'ultrathink',
+  'max',
+  'ultracode',
 ]);
 
 export type ThinkingEffort = z.infer<typeof ThinkingEffortSchema>;
 
 export const THINKING_EFFORT_VALUES = ThinkingEffortSchema.options;
+
+/**
+ * Pre-PR #42 names, still accepted on the wire so a tab running an older
+ * bundle keeps working. Each maps to the `--effort` it used to compose.
+ */
+export const LEGACY_THINKING_EFFORT: Readonly<Record<string, ThinkingEffort>> = {
+  off: 'auto',
+  think: 'low',
+  think_hard: 'medium',
+  think_harder: 'high',
+  ultrathink: 'max',
+};
+
+/** A current level, or a legacy alias mapped to one; undefined otherwise. */
+export function normalizeThinkingEffort(raw: unknown): ThinkingEffort | undefined {
+  const parsed = ThinkingEffortSchema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  return typeof raw === 'string' ? LEGACY_THINKING_EFFORT[raw] : undefined;
+}

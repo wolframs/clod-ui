@@ -7,6 +7,7 @@ export * from './diagnostics.ts';
 export * from './attachments.ts';
 export * from './chat-message.ts';
 export * from './conversations.ts';
+export * from './models.ts';
 export * from './replay.ts';
 export * from './transcript.ts';
 export * from './turn.ts';

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { splitArgv, warmReusable } from '../src/warm-reuse.ts';
 
-/** Spec: plans/2026-10-27-clod-ui-pr39-warm-sessions-v1.md §2. */
+/** Spec: plans/landed/2026-10-27-clod-ui-pr39-warm-sessions-v1.md §2. */
 
 const base = ['claude', '-p', '--input-format', 'stream-json', '--model', 'opus'];
 const warm = {
@@ -20,7 +20,11 @@ describe('warmReusable', () => {
     ],
     [
       'add-dirs a subset of the warm ones',
-      { argv: [...base, '--add-dir', '/c/attachments'], cwd: '/c', resume_session_id: 's1' },
+      {
+        argv: [...base, '--resume', 's1', '--add-dir', '/c/attachments'],
+        cwd: '/c',
+        resume_session_id: 's1',
+      },
       true,
     ],
     [
@@ -59,6 +63,37 @@ describe('warmReusable', () => {
     [
       'add-dir the warm process lacks',
       { argv: [...base, '--add-dir', '/elsewhere'], cwd: '/c', resume_session_id: 's1' },
+      false,
+    ],
+    // PR #43: session controls beyond the composed --resume force a spawn.
+    [
+      'raw flags resume another session (--resume s2 after --resume s1)',
+      {
+        argv: [...base, '--resume', 's1', '--add-dir', '/c', '--resume', 's2'],
+        cwd: '/c',
+        resume_session_id: 's1',
+      },
+      false,
+    ],
+    [
+      'raw --fork-session',
+      {
+        argv: [...base, '--resume', 's1', '--add-dir', '/c', '--fork-session'],
+        cwd: '/c',
+        resume_session_id: 's1',
+      },
+      false,
+    ],
+    ...['--continue', '-c', '--resume=s2', '--session-id', '--no-session-persistence'].map(
+      (flag): [string, Parameters<typeof warmReusable>[1], boolean] => [
+        `raw ${flag}`,
+        { argv: [...base, '--resume', 's1', flag], cwd: '/c', resume_session_id: 's1' },
+        false,
+      ],
+    ),
+    [
+      'resume id set but argv has no --resume (not a composed request)',
+      { argv: [...base, '--add-dir', '/c'], cwd: '/c', resume_session_id: 's1' },
       false,
     ],
   ];

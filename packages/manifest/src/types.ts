@@ -13,6 +13,25 @@ export interface ManifestEventBase {
   hash_self: string;
 }
 
+/**
+ * Effort names a manifest may hold: the CLI's own levels (PR #42) and the
+ * pre-#42 names. Kept as plain literals: this package does not depend on
+ * contracts. No engine path writes `settings.applied` yet.
+ */
+export type ThinkingEffortName =
+  | 'auto'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+  | 'ultracode'
+  | 'off'
+  | 'think'
+  | 'think_hard'
+  | 'think_harder'
+  | 'ultrathink';
+
 export type ManifestEvent = ManifestEventBase &
   (
     | { kind: 'conversation.created'; title?: string }
@@ -21,7 +40,7 @@ export type ManifestEvent = ManifestEventBase &
     | {
         kind: 'settings.applied';
         model?: string;
-        thinking_effort?: 'off' | 'think' | 'think_hard' | 'think_harder' | 'ultrathink';
+        thinking_effort?: ThinkingEffortName;
         system_prompt?: { mode: 'append' | 'override'; text: string };
         allowed_tools?: string[];
         disallowed_tools?: string[];
@@ -72,7 +91,7 @@ export interface ConversationState {
   created_at?: number;
   claude_session_id?: string;
   model?: string;
-  thinking_effort?: 'off' | 'think' | 'think_hard' | 'think_harder' | 'ultrathink';
+  thinking_effort?: ThinkingEffortName;
   system_prompt?: { mode: 'append' | 'override'; text: string };
   allowed_tools?: string[];
   disallowed_tools?: string[];

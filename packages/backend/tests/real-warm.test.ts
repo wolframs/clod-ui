@@ -15,7 +15,7 @@ import type { BackendEvent, TurnRequest } from '../src/types.ts';
  * answers each with init → assistant → result, exiting on EOF. Every spawn
  * appends "<pid> <argv>" to a log so tests can count processes.
  *
- * Spec: plans/2026-10-27-clod-ui-pr39-warm-sessions-v1.md.
+ * Spec: plans/landed/2026-10-27-clod-ui-pr39-warm-sessions-v1.md.
  */
 
 let dir: string;
@@ -413,6 +413,78 @@ describe('RealClaudeBackend warm processes', () => {
       expect(alive(child)).toBe(false);
     } finally {
       // Never leak the stubborn child, even when an assertion above failed.
+      await be.stop();
+      if (child > 0 && alive(child)) process.kill(child, 'SIGKILL');
+    }
+  }, 15_000);
+
+  // ---- PR #43 (review: Sol) ----------------------------------------------
+
+  test('raw flags that resume another session force a spawn instead of reuse', async () => {
+    const be = await backend(60_000);
+    try {
+      await collect(be.startTurn(turn(1)));
+      const raw = turn(2, { extra_argv: ['--resume', 's2'] });
+      expect(be.reusableArgv(raw)).toBeUndefined();
+      await collect(be.startTurn(raw));
+      expect(spawns()).toHaveLength(2);
+    } finally {
+      await be.stop();
+    }
+  }, 15_000);
+
+  /** A shim whose CLI leader leaves a SIGTERM-ignoring child in its group. */
+  function writeLeakyShim(childPidFile: string, leaderExitsAfterTurn: boolean): void {
+    writeFileSync(
+      shim,
+      [
+        '#!/usr/bin/env bash',
+        'if [[ "${1:-}" == "--version" ]]; then echo "2.1.310 (Claude Code)"; exit 0; fi',
+        `echo "$$ $*" >> ${JSON.stringify(spawnLog)}`,
+        `bash -c 'trap "" TERM; echo $$ > ${childPidFile}; while true; do sleep 0.1; done' >/dev/null 2>&1 &`,
+        // Answer only once the child has its trap: a sweep must meet a real holdout.
+        `while [ ! -s ${childPidFile} ]; do sleep 0.02; done`,
+        'while IFS= read -r line; do',
+        `  printf '%s\\n' '{"type":"system","subtype":"init","session_id":"sess-1"}'`,
+        `  printf '%s\\n' '{"type":"result","subtype":"success"}'`,
+        leaderExitsAfterTurn ? '  exit 0' : '  :',
+        'done',
+      ].join('\n') + '\n',
+    );
+  }
+
+  async function childPid(file: string): Promise<number> {
+    for (let i = 0; i < 100 && !existsSync(file); i++) await Bun.sleep(20);
+    return Number(readFileSync(file, 'utf8').trim());
+  }
+
+  test('stop() waits for the group sweep of a leader that already exited', async () => {
+    const childPidFile = join(dir, 'child.pid');
+    writeLeakyShim(childPidFile, false);
+    const be = await backend(0); // one-shot: the leader exits on EOF after the turn
+    let child = 0;
+    try {
+      await collect(be.startTurn(turn(1)));
+      child = await childPid(childPidFile);
+      expect(await waitDead(spawns()[0]!)).toBe(true); // leader gone, child not
+      await be.stop();
+      expect(alive(child)).toBe(false);
+    } finally {
+      await be.stop();
+      if (child > 0 && alive(child)) process.kill(child, 'SIGKILL');
+    }
+  }, 15_000);
+
+  test('a warm leader that exits on its own has its group swept, stop() or not', async () => {
+    const childPidFile = join(dir, 'child.pid');
+    writeLeakyShim(childPidFile, true);
+    const be = await backend(60_000);
+    let child = 0;
+    try {
+      await collect(be.startTurn(turn(1)));
+      child = await childPid(childPidFile);
+      expect(await waitDead(child, 4000)).toBe(true);
+    } finally {
       await be.stop();
       if (child > 0 && alive(child)) process.kill(child, 'SIGKILL');
     }

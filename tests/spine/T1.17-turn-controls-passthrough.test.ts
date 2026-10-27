@@ -98,17 +98,17 @@ describe('T1.17 turn controls passthrough', () => {
       turn_id: 'turn-17-a',
       user_message: 'hi',
       model: 'sonnet',
-      thinking_effort: 'think_hard',
+      thinking_effort: 'xhigh',
     });
     expect(res.status).toBe(202);
 
     const req = await waitForRequest(backend);
     expect(req.model).toBe('sonnet');
-    expect(req.thinking_effort).toBe('think_hard');
+    expect(req.thinking_effort).toBe('xhigh');
 
     const { argv } = compose(req);
     expect(argv[argv.indexOf('--model') + 1]).toBe('sonnet');
-    expect(argv[argv.indexOf('--effort') + 1]).toBe('medium');
+    expect(argv[argv.indexOf('--effort') + 1]).toBe('xhigh');
   });
 
   test('absent controls stay absent — no --model / --effort composed', async () => {

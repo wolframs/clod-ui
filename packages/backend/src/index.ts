@@ -10,3 +10,4 @@ export { classifyCliFailure } from './classify-error.ts';
 export type { ClassifyInput } from './classify-error.ts';
 export { splitArgv, warmReusable } from './warm-reuse.ts';
 export type { NextTurnShape, WarmProcessShape } from './warm-reuse.ts';
+export { controlResponseFor, initializeRequestLine, parseModelList } from './models.ts';

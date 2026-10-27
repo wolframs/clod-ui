@@ -13,7 +13,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/screenshot-dark.png">
-  <img alt="Clod UI: a conversation sidebar, a finished turn with its cache badge (cache 98%, 57.1k read, 1.1k written), thinking, a markdown answer and a Read tool card, and the model, effort and flag controls above the composer." src="./docs/assets/screenshot-light.png">
+  <img alt="Clod UI: a conversation sidebar, a finished turn with its cache badge (cache 98%, 57.1k read, 1.1k written), thinking, a markdown answer and a Read tool card, and the model picker and Auto-to-Ultracode effort scale above the composer." src="./docs/assets/screenshot-light.png">
 </picture>
 
 <p align="center"><sub>A scripted demo conversation, rendered by the real engine and web app.</sub></p>
@@ -50,8 +50,12 @@ from the CLI's own session transcripts, which the engine tails.
   engine and opens a browser. A crashed engine is restarted once.
 - 💬 **The conversation loop.** Sidebar, history, streaming turns with
   thinking and tool cards, markdown, cancel, auto-titles, reconnect-and-resume.
-- 🎛️ **Visible controls.** Model, thinking effort, system prompt (append or
-  override), tool allow/deny lists and raw argv, each mapped to a CLI flag.
+- 🎛️ **Visible controls.** The model picker lists what the CLI itself
+  offers (name and resolved id, read from its `initialize` reply). Effort is
+  the CLI's own scale, Auto · Low · Medium · High · XHigh · Max · Ultracode,
+  with levels the chosen model doesn't take greyed out. Plus system prompt
+  (append or override), tool allow/deny lists and raw argv, each mapped to
+  a CLI flag.
 - 🔍 **Debug panel.** Each turn's redacted argv and event timeline, whether
   it spawned or reused a process, and a "Copy repro" button.
 - ♨️ **Warm processes.** One CLI per conversation between turns. The usage
@@ -152,7 +156,8 @@ normalizes them into typed chat messages. That is the CLI's record, not ours.
 ```
 apps/
   engine/      Bun + Hono server: health, conversations, turns, cancel, transcript,
-               settings, skills, diagnostics, attachments, static SPA, /ws.
+               settings, skills, models, diagnostics, attachments, static
+               SPA, /ws.
                SQLite index + append-only manifest + transcript watcher +
                auto-titling + same-origin guard.
   web/         Vite + React + Tailwind + shadcn/ui: sidebar, history, streaming

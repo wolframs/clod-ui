@@ -22,6 +22,7 @@ import { useConversations } from '@/lib/use-conversations';
 import { useDiagnostics } from '@/lib/use-diagnostics';
 import { useHealth } from '@/lib/use-health';
 import { useKeymap } from '@/lib/use-keymap';
+import { useModels } from '@/lib/use-models';
 import { useSettings } from '@/lib/use-settings';
 import { useSkills } from '@/lib/use-skills';
 import { useStickyBottom } from '@/lib/use-sticky-bottom';
@@ -103,8 +104,9 @@ export function App(): JSX.Element {
     /** History length at submit; the echo is looked for after it. */
     after: number;
   } | null>(null);
-  // Which model each picker choice resolved to, learned from `system.init`
-  // (the CLI has no listing command). Keyed by alias, `default` for none.
+  // Which model each picker choice resolved to, learned from `system.init`.
+  // The picker's fallback labels when `GET /models` is unavailable (PR #42).
+  // Keyed by alias, `default` for none.
   const [resolvedModels, setResolvedModels] = useState<Record<string, string>>(loadResolvedModels);
   // Per turn: which picker choice it was submitted with (null once learned
   // or unknown) and how long the history was before it, so matching its
@@ -305,6 +307,8 @@ export function App(): JSX.Element {
   // Skills panel (PR #31): read-only discovery, fetch on open.
   const [skillsOpen, setSkillsOpen] = useState(false);
   const skills = useSkills({ enabled: skillsOpen });
+  // The CLI's own model list for the picker (PR #42); the engine caches it.
+  const models = useModels();
 
   // Diagnostics panel (PR #32): hidden by default, fetch on open.
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -540,6 +544,7 @@ export function App(): JSX.Element {
               // alongside the per-conversation controls value.
               <TurnControlsBar
                 key={selectedId}
+                {...(models.state.status === 'ok' ? { models: models.state.models } : {})}
                 resolvedModels={resolvedModels}
                 value={turnControls}
                 onChange={handleControlsChange}

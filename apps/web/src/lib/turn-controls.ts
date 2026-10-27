@@ -5,7 +5,7 @@
  *
  * Spec: plans/2026-06-10-clod-ui-pr24-turn-controls-v1.md.
  */
-import type { ThinkingEffort } from '@clod-ui/contracts';
+import type { ModelInfo, ThinkingEffort } from '@clod-ui/contracts';
 
 /** Mirrors the wire shape (`SubmitTurnInput.system_prompt`). */
 export interface SystemPrompt {
@@ -127,30 +127,69 @@ export function toggleToolEntry(
 }
 
 /**
- * Curated model choices, as CLI aliases — they track the latest snapshot
- * per tier and rot slower than dated full IDs (D4). "Custom…" in the UI
- * accepts any string the CLI's `--model` takes (full IDs included).
+ * Fallback model choices, as CLI aliases, for when the CLI's own list
+ * (`GET /models`, PR #42) cannot be loaded. "Custom…" in the UI accepts any
+ * string the CLI's `--model` takes (full IDs included).
  */
-// TODO(model-discovery): dynamic discovery (engine probe + curated
-// fallback keyed by CLI version) is v2 Task 5.1's full vision.
 export const KNOWN_MODELS = ['fable', 'opus', 'sonnet', 'haiku'] as const;
 
-export function isKnownModel(model: string): boolean {
+export function isKnownModel(model: string, models?: readonly ModelInfo[]): boolean {
+  if (models !== undefined) return models.some((m) => m.value === model);
   return (KNOWN_MODELS as readonly string[]).includes(model);
 }
 
 /**
- * Effort options the UI offers. `'off'` is deliberately absent: it and an
- * unset field compose to identical argv (no `--effort`), so the picker's
- * "Default" option means "send nothing" (D6).
+ * The CLI's own effort levels (PR #42), in `/effort`'s order. `auto` and an
+ * unset field compose to the same argv (no `--effort`), so the bar shows
+ * Auto selected for both and stores Auto as "unset".
  */
 export const EFFORT_OPTIONS: ReadonlyArray<{
   value: ThinkingEffort;
   label: string;
+  title: string;
 }> = [
-  { value: 'think', label: 'Think' },
-  { value: 'think_hard', label: 'Think hard' },
-  { value: 'think_harder', label: 'Think harder' },
-  { value: 'xhigh', label: 'Xhigh' },
-  { value: 'ultrathink', label: 'Ultrathink' },
+  {
+    value: 'auto',
+    label: 'Auto',
+    title: "No --effort: the model's own default. Current models cannot turn thinking off.",
+  },
+  { value: 'low', label: 'Low', title: '--effort low' },
+  { value: 'medium', label: 'Medium', title: '--effort medium' },
+  { value: 'high', label: 'High', title: '--effort high' },
+  { value: 'xhigh', label: 'XHigh', title: '--effort xhigh' },
+  { value: 'max', label: 'Max', title: '--effort max' },
+  {
+    value: 'ultracode',
+    label: 'Ultracode',
+    title:
+      "--effort ultracode: xhigh effort plus the CLI's multi-agent orchestration (workflows). Can spend a lot.",
+  },
 ];
+
+/** The CLI's entry for a picker value (`undefined` model = the `default` entry). */
+export function modelInfoFor(
+  models: readonly ModelInfo[] | undefined,
+  model: string | undefined,
+): ModelInfo | undefined {
+  return models?.find((m) => m.value === (model ?? 'default'));
+}
+
+/**
+ * Whether `level` is offered for this model. Without the CLI's entry (list
+ * not loaded, custom id) every level stays offered. Ultracode runs at
+ * xhigh, so it needs xhigh; a model without effort control offers Auto only.
+ */
+export function effortAllowed(level: ThinkingEffort, info: ModelInfo | undefined): boolean {
+  if (level === 'auto' || info === undefined) return true;
+  const levels = info.effort_levels;
+  if (levels === undefined) return false;
+  return levels.includes(level === 'ultracode' ? 'xhigh' : level);
+}
+
+/** Drop an effort the (new) model does not take, so the turn falls back to Auto. */
+export function reconcileEffort(controls: TurnControls, info: ModelInfo | undefined): TurnControls {
+  const effort = controls.thinking_effort;
+  if (effort === undefined || effortAllowed(effort, info)) return controls;
+  const { thinking_effort: _effort, ...rest } = controls;
+  return rest;
+}

@@ -82,12 +82,13 @@ describe('compose — model', () => {
 
 describe('compose — thinking effort', () => {
   const rows: Array<[NonNullable<TurnRequest['thinking_effort']>, string | null]> = [
-    ['off', null],
-    ['think', 'low'],
-    ['think_hard', 'medium'],
-    ['think_harder', 'high'],
+    ['auto', null],
+    ['low', 'low'],
+    ['medium', 'medium'],
+    ['high', 'high'],
     ['xhigh', 'xhigh'],
-    ['ultrathink', 'max'],
+    ['max', 'max'],
+    ['ultracode', 'ultracode'],
   ];
   for (const [input, expected] of rows) {
     test(`thinking_effort: ${input} → ${expected ?? 'no flag'}`, () => {
@@ -104,12 +105,13 @@ describe('compose — thinking effort', () => {
 
   test('THINKING_EFFORT_MAP is exported and exhaustive', () => {
     expect(THINKING_EFFORT_MAP).toEqual({
-      off: null,
-      think: 'low',
-      think_hard: 'medium',
-      think_harder: 'high',
+      auto: null,
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
       xhigh: 'xhigh',
-      ultrathink: 'max',
+      max: 'max',
+      ultracode: 'ultracode',
     });
   });
 });

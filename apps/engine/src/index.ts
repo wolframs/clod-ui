@@ -54,6 +54,7 @@ import { registerCancelRoutes } from './routes/cancel.ts';
 import { registerConversationsRoutes } from './routes/conversations.ts';
 import { registerDiagnosticsRoutes } from './routes/diagnostics.ts';
 import { registerHealthRoutes } from './routes/health.ts';
+import { registerModelsRoutes } from './routes/models.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { registerSkillsRoutes } from './routes/skills.ts';
 import { registerStaticRoutes } from './routes/static.ts';
@@ -271,6 +272,10 @@ export function createApp(opts: CreateAppOptions): AppContext {
   registerTranscriptRoutes(app, { persistence, transcripts });
   registerSettingsRoutes(app, { store: settingsStore });
   registerSkillsRoutes(app, { skills: opts.skills ?? null });
+  registerModelsRoutes(app, {
+    backend,
+    ...(opts.conversationCwd !== undefined ? { cwd: opts.conversationCwd } : {}),
+  });
   registerDiagnosticsRoutes(app, { ring: diagnosticsRing });
   // Static SPA fallback must stay last — API routes win by registration order.
   registerStaticRoutes(app, { staticDir: opts.static?.dir ?? null });

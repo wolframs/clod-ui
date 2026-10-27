@@ -1,4 +1,4 @@
-import type { ClodError, HealthCliStatus, ThinkingEffort } from '@clod-ui/contracts';
+import type { ClodError, HealthCliStatus, ModelInfo, ThinkingEffort } from '@clod-ui/contracts';
 
 /**
  * Event shapes emitted by a backend. Mirrors the wire-layer event kinds but
@@ -110,6 +110,12 @@ export interface ClaudeBackend {
   reusableArgv?(req: TurnRequest): string[] | undefined;
   startTurn(req: TurnRequest): AsyncIterable<BackendEvent>;
   cancel(turnId: string): Promise<void>;
+  /**
+   * PR #42: the models this CLI offers, as it reports them itself. `cwd` is
+   * where the probe runs (project settings apply). Backends without a CLI
+   * omit it; the engine's `GET /models` is then not configured.
+   */
+  listModels?(opts?: { cwd?: string }): Promise<ModelInfo[]>;
   version(): Promise<string>;
   health(): Promise<HealthStatus>;
 }

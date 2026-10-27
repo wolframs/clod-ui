@@ -13,13 +13,13 @@ import { EFFORT_OPTIONS, KNOWN_MODELS } from '../src/lib/turn-controls.ts';
 const noop = (): void => {};
 
 describe('TurnControlsBar', () => {
-  test('default variant: every known model offered, Default + Custom… present, effort default selected', () => {
+  test('fallback variant (no CLI list): every known model offered, Default + Custom… present, Auto selected', () => {
     const html = renderToString(<TurnControlsBar value={{}} onChange={noop} />);
     expect(html).toContain('data-test="turn-controls"');
     expect(html).toContain('data-state="enabled"');
     for (const m of KNOWN_MODELS) expect(html).toContain(`>${m}</option>`);
     expect(html).toContain('Custom…');
-    expect(html).toContain('data-test="turn-controls-effort-default" data-selected="true"');
+    expect(html).toContain('data-test="turn-controls-effort-auto" data-selected="true"');
     // no custom input until custom mode / a custom model
     expect(html).not.toContain('turn-controls-model-custom');
   });
@@ -40,11 +40,10 @@ describe('TurnControlsBar', () => {
 
   test('effort selected: only that segment carries data-selected="true"', () => {
     const html = renderToString(
-      <TurnControlsBar value={{ thinking_effort: 'ultrathink' }} onChange={noop} />,
+      <TurnControlsBar value={{ thinking_effort: 'ultracode' }} onChange={noop} />,
     );
-    expect(html).toContain('data-test="turn-controls-effort-ultrathink" data-selected="true"');
-    expect(html).toContain('data-test="turn-controls-effort-default" data-selected="false"');
-    for (const opt of EFFORT_OPTIONS.filter((o) => o.value !== 'ultrathink')) {
+    expect(html).toContain('data-test="turn-controls-effort-ultracode" data-selected="true"');
+    for (const opt of EFFORT_OPTIONS.filter((o) => o.value !== 'ultracode')) {
       expect(html).toContain(`data-test="turn-controls-effort-${opt.value}" data-selected="false"`);
     }
   });
@@ -53,5 +52,17 @@ describe('TurnControlsBar', () => {
     const html = renderToString(<TurnControlsBar value={{}} onChange={noop} disabled />);
     expect(html).toContain('data-state="disabled"');
     expect(html).toContain('disabled');
+  });
+
+  test("PR #42: the segments are the CLI's /effort levels, in its order", () => {
+    expect(EFFORT_OPTIONS.map((o) => o.label)).toEqual([
+      'Auto',
+      'Low',
+      'Medium',
+      'High',
+      'XHigh',
+      'Max',
+      'Ultracode',
+    ]);
   });
 });

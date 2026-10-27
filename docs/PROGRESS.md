@@ -1,6 +1,6 @@
 # Progress at a glance
 
-_Last updated: 2026-10-27, after PR #41. Update this file in every
+_Last updated: 2026-10-27, after PR #43. Update this file in every
 "land PR #N" docs commit — it is the one-screen answer to "where is
 this project?"; the details live in the links, not here._
 
@@ -40,10 +40,10 @@ CI       fast / deep / nightly tiers        █████░░░  fast+deep 
 
 ## The numbers
 
-- **49 PRs landed** (catalog: [`plans/INDEX.md`](../plans/INDEX.md))
-- **49 / 49 spine tests live**, 20 files ([`docs/SPINE.md`](./SPINE.md))
+- **51 PRs landed** (catalog: [`plans/INDEX.md`](../plans/INDEX.md))
+- **52 / 52 spine tests live**, 21 files ([`docs/SPINE.md`](./SPINE.md))
 - **9 invariants** pinned by tests ([`docs/INVARIANTS.md`](./INVARIANTS.md))
-- **784 bun + 112 vitest tests**, 0 fail, gating every commit
+- **813 bun + 117 vitest tests**, 0 fail, gating every commit
 - Architecture spec current as of PR #23
   ([v3 + drift ledger](../plans/2026-06-10-clod-ui-architecture-v3.md))
 
@@ -73,7 +73,9 @@ Each conversation keeps one warm CLI process between turns (PR #39):
 SessionStart hooks run once, not per turn; the usage badge shows the
 turn's cache hit, read and written tokens. Retirement is bounded
 (EOF → SIGTERM → SIGKILL, until the whole process group is gone) and
-engine shutdown waits for it (PR #40/#41).
+engine shutdown waits for it (PR #40/#41/#43). The model picker lists
+the CLI's own models (name · resolved id) and effort is the CLI's
+`/effort` scale, Auto…Max plus Ultracode, gated per model (PR #42).
 
 ## Up next (the completion goal queue)
 

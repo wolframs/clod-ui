@@ -6,9 +6,15 @@ const BASE = { turn_id: 't-1', user_message: 'hello', cwd: '/tmp/c' };
 
 describe('parseTurnBody', () => {
   test('accepts a valid thinking_effort and carries it on the TurnRequest', () => {
+    const parsed = parseTurnBody('conv-1', { ...BASE, thinking_effort: 'xhigh' });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.thinking_effort).toBe('xhigh');
+  });
+
+  test('a pre-#42 effort name is mapped, not rejected (PR #42)', () => {
     const parsed = parseTurnBody('conv-1', { ...BASE, thinking_effort: 'think_hard' });
     expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.value.thinking_effort).toBe('think_hard');
+    if (parsed.ok) expect(parsed.value.thinking_effort).toBe('medium');
   });
 
   test('absent thinking_effort stays absent', () => {
