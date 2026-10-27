@@ -1,47 +1,73 @@
-# Clod UI
+<h1 align="center">Clod UI</h1>
 
-A chat UI that routes every conversation through the Claude Code CLI instead of
-calling an API directly. A Bun engine runs `claude` headless
+<p align="center">
+  <b>A chat UI that runs every turn through the Claude Code CLI,<br>and shows you exactly what it ran.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/wolframs/clod-ui/actions/workflows/fast.yml"><img alt="ci:fast" src="https://github.com/wolframs/clod-ui/actions/workflows/fast.yml/badge.svg"></a>
+  <img alt="Bun 1.3.13" src="https://img.shields.io/badge/bun-1.3.13-f9f1e1?logo=bun&logoColor=black">
+  <img alt="Claude Code CLI" src="https://img.shields.io/badge/runs%20on-Claude%20Code%20CLI-d97757">
+  <a href="./LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-blue"></a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/screenshot-dark.png">
+  <img alt="Clod UI: a conversation sidebar, a finished turn with its cache badge (cache 98%, 57.1k read, 1.1k written), thinking, a markdown answer and a Read tool card, and the model, effort and flag controls above the composer." src="./docs/assets/screenshot-light.png">
+</picture>
+
+<p align="center"><sub>A scripted demo conversation, rendered by the real engine and web app.</sub></p>
+
+No API client inside: a Bun engine runs `claude` headless
 (`-p --input-format stream-json --output-format stream-json`), streams its
-events over WebSocket, and a React app renders them. The point is that the
-operator can see and set the things the CLI normally hides: model, effort, tool
-allow and deny lists, system prompt, raw flags, session resume, and the exact
-argv each turn ran with.
+events over WebSocket, and a React app renders them. You can see and set the
+things the CLI normally keeps out of sight: model, effort, tool allow and deny
+lists, system prompt, raw flags, session resume, and the exact argv each turn
+ran with.
 
-**Status, in the owner's words:** "Personal tool, under construction. Not
-intended for third-party use." A one-screen progress overview is in
-[`docs/PROGRESS.md`](./docs/PROGRESS.md).
+> **Status, in the owner's words:** "Personal tool, under construction. Not
+> intended for third-party use." Progress at a glance:
+> [`docs/PROGRESS.md`](./docs/PROGRESS.md).
+
+## How a turn runs
+
+```mermaid
+flowchart LR
+  W["Browser<br/>React app"] -->|HTTP + WebSocket| E["Engine<br/>Bun + Hono"]
+  E -->|"user message (stream-json, stdin)"| C["claude -p<br/>one warm process<br/>per conversation"]
+  C -->|"NDJSON events (stdout)"| E
+  E --> M[("manifest log<br/>+ SQLite index")]
+  C -.->|session JSONL| T[("Claude Code<br/>transcripts")]
+  T -.->|tailed| E
+```
+
+The first turn of a conversation spawns `claude`. Later turns are written into
+the same process, so the CLI boots and its SessionStart hooks run once per
+conversation, not once per turn. Change the model, effort, prompt, tools or
+flags and the process is replaced, resuming the same session.
 
 ## What works today
 
-- **One command starts it.** `bun run start` builds the web app if it is
-  missing, boots the engine, serves the app from the same origin and opens a
-  browser. If the engine crashes, the launcher restarts it once on the same
-  port while the UI shows a reconnecting banner.
-- **The conversation loop:** a sidebar, history, streaming turns with tool and
-  thinking cards, markdown, submit and cancel, auto-titling, and
-  reconnect-and-resume.
-- **Per-conversation controls:** model, thinking effort, system prompt (append
-  or override), tool allow and deny lists, and raw extra argv. Each control
-  maps to a CLI flag you can see.
-- **Panels:** a settings editor for Claude Code's own `settings.json` (shows a
-  diff before saving), a read-only list of discoverable skills, and a Debug
-  panel. The Debug panel shows each turn's redacted argv and event timeline,
-  whether the turn spawned a process or reused one, and a "Copy repro" button.
-- **Attachments:** pick files or drag them into the composer. Images reach the
-  model as base64 blocks; other files are reachable through `--add-dir`.
-- **Warm processes:** each conversation keeps one CLI process alive between
-  turns. SessionStart hooks run once per conversation rather than once per
-  turn, and later turns skip CLI startup. The usage badge shows how much of
-  each turn was read from the prompt cache and how much was written. Idle,
-  errored and surplus processes are retired by a bounded EOF → SIGTERM →
-  SIGKILL sequence that ends only when the whole process group is gone.
-- **Theme and keys:** light and dark themes (follows the OS unless you pick
-  one), plus a keyboard map: `n`, `/`, `j`/`k`, `?`, `Esc`.
+- 🚀 **One command.** `bun run start` builds the web app if needed, boots the
+  engine and opens a browser. A crashed engine is restarted once.
+- 💬 **The conversation loop.** Sidebar, history, streaming turns with
+  thinking and tool cards, markdown, cancel, auto-titles, reconnect-and-resume.
+- 🎛️ **Visible controls.** Model, thinking effort, system prompt (append or
+  override), tool allow/deny lists and raw argv, each mapped to a CLI flag.
+- 🔍 **Debug panel.** Each turn's redacted argv and event timeline, whether
+  it spawned or reused a process, and a "Copy repro" button.
+- ♨️ **Warm processes.** One CLI per conversation between turns. The usage
+  badge shows the prompt cache: share read, tokens read, tokens written.
+  Retiring one stops its whole process group, bounded to ~2.5s.
+- 📎 **Attachments.** Drag files into the composer; images go to the model
+  as base64 blocks.
+- ⚙️ **Panels for the rest.** Claude Code's `settings.json` behind a diff
+  preview, a list of discoverable skills, light and dark themes, and a
+  keyboard map (`n`, `/`, `j`/`k`, `?`, `Esc`).
 
-Not built yet: `ci:nightly` (tape replay and a real-CLI smoke) is a stub,
-chaos and performance test tiers do not exist, and the launcher only builds
-the web app when it is missing.
+**Not built yet:** `ci:nightly` (tape replay, real-CLI smoke) is a stub; chaos
+and performance test tiers don't exist; the launcher only builds the web app
+when it is missing.
 
 ## Prerequisites
 
@@ -102,7 +128,10 @@ it.
 Git hooks (via [`lefthook.yml`](./lefthook.yml)): pre-commit runs
 `lint:staged` + `typecheck`, pre-push runs `ci:fast`. `LEFTHOOK=0` bypasses.
 
-## The event log
+## Under the hood
+
+<details>
+<summary><b>The event log</b></summary>
 
 [`packages/manifest`](./packages/manifest) is an append-only NDJSON log, one
 file per conversation at
@@ -117,7 +146,10 @@ Separately, [`packages/transcripts`](./packages/transcripts) tails Claude Code's
 own JSONL session files under `<CLAUDE_HOME>/projects/<encoded-cwd>/` and
 normalizes them into typed chat messages. That is the CLI's record, not ours.
 
-## Layout
+</details>
+
+<details>
+<summary><b>Layout</b></summary>
 
 ```
 apps/
@@ -148,6 +180,8 @@ tests/
   e2e/         Playwright deep tier.
   fixtures/cli-tapes/   Captured CLI tapes.
 ```
+
+</details>
 
 ## Design docs
 
