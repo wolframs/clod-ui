@@ -33,18 +33,16 @@ ran with.
 
 ```mermaid
 flowchart LR
-  W["Browser<br/>React app"] -->|HTTP + WebSocket| E["Engine<br/>Bun + Hono"]
-  E -->|"user message (stream-json, stdin)"| C["claude -p<br/>one warm process<br/>per conversation"]
-  C -->|"NDJSON events (stdout)"| E
-  E --> M[("manifest log<br/>+ SQLite index")]
-  C -.->|session JSONL| T[("Claude Code<br/>transcripts")]
-  T -.->|tailed| E
+  W["Browser<br/>React app"] <-->|"HTTP + WebSocket"| E["Engine<br/>Bun + Hono"]
+  E <-->|"stdin: stream-json<br/>stdout: NDJSON"| C["claude -p<br/>one warm process<br/>per conversation"]
+  E --- M[("manifest log<br/>+ SQLite index")]
 ```
 
 The first turn of a conversation spawns `claude`. Later turns are written into
 the same process, so the CLI boots and its SessionStart hooks run once per
 conversation, not once per turn. Change the model, effort, prompt, tools or
-flags and the process is replaced, resuming the same session.
+flags and the process is replaced, resuming the same session. History comes
+from the CLI's own session transcripts, which the engine tails.
 
 ## What works today
 
