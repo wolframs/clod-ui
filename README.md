@@ -1,7 +1,7 @@
 <h1 align="center">Clod UI</h1>
 
 <p align="center">
-  <b>A chat UI that runs every turn through the Claude Code CLI,<br>and shows you exactly what it ran.</b>
+  <b>A chat UI that lets you configure as much as possible about how the models show up, runs every turn through the Claude Code CLI,<br>and shows you exactly what it ran.</b>
 </p>
 
 <p align="center">
