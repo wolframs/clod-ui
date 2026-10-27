@@ -5,7 +5,7 @@
  * transcript file, projected through `normalizeTranscriptLines`). Composes
  * with `useTurnStream` in App.tsx: history above the active turn.
  *
- * Spec: plans/2026-05-06-clod-ui-pr20b-transcript-history-v1.md §3.
+ * Spec: plans/landed/2026-05-06-clod-ui-pr20b-transcript-history-v1.md §3.
  *
  * Lifecycle:
  *   - conv_id undefined → 'idle' (no fetch).
@@ -24,8 +24,10 @@
 import type { ChatMessage } from '@clod-ui/contracts';
 import type { TranscriptLine as ContractsTranscriptLine } from '@clod-ui/contracts';
 import { ClientError } from '@clod-ui/contracts/client';
-import { normalizeTranscriptLines, type SkippedLine } from '@clod-ui/transcripts';
-import type { TranscriptLine as TranscriptsTranscriptLine } from '@clod-ui/transcripts';
+// Subpath imports keep the Node-only watcher/reader out of the browser
+// bundle — the package barrel pulls in node:fs (vite build breaks on it).
+import { normalizeTranscriptLines, type SkippedLine } from '@clod-ui/transcripts/normalize';
+import type { TranscriptLine as TranscriptsTranscriptLine } from '@clod-ui/transcripts/types';
 import * as React from 'react';
 
 import { useEngine } from './engine-context.tsx';
@@ -117,6 +119,13 @@ export function useTranscript(opts: UseTranscriptOptions): UseTranscriptReturn {
         if (localCancelled || cancelledRef.current) return;
         if (err instanceof ClientError && err.kind === 'not_configured') {
           setState({ status: 'not_configured' });
+          return;
+        }
+        // 404 for an unknown conversation: "+ New" makes the id client-side
+        // and the engine provisions it on the first turn, so until then the
+        // history is simply empty.
+        if (err instanceof ClientError && err.kind === 'http' && err.status === 404) {
+          setState({ status: 'ok', messages: [], meta: { line_count: 0, skipped: [] } });
           return;
         }
         // Don't blank a successful 'ok' state on an aborted refetch — those

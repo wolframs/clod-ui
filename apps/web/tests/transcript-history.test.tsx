@@ -307,3 +307,28 @@ describe('TranscriptHistory: content blocks', () => {
     expect(html).not.toContain('&quot;just a string&quot;');
   });
 });
+
+// PR #34: user-sent images render as data URIs straight from the transcript.
+describe('ImageBlockView (via TranscriptHistory)', () => {
+  test('image block renders an <img> with the data URI and markers', () => {
+    const state = {
+      status: 'ok' as const,
+      messages: [
+        {
+          id: 'msg-1',
+          role: 'user' as const,
+          content: [
+            { type: 'text' as const, text: 'look at this' },
+            { type: 'image' as const, media_type: 'image/png', data_base64: 'QUJD' },
+          ],
+          source: { line_number: 1, byte_offset: 0 },
+        },
+      ],
+      meta: { line_count: 1, skipped: [] },
+    };
+    const html = renderToString(<TranscriptHistory state={state} />);
+    expect(html).toContain('data-test="image-block"');
+    expect(html).toContain('data-media-type="image/png"');
+    expect(html).toContain('src="data:image/png;base64,QUJD"');
+  });
+});

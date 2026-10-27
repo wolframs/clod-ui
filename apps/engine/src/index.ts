@@ -27,6 +27,7 @@
  *
  * Spec: docs/INVARIANTS.md (engine surface invariants).
  */
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -45,13 +46,20 @@ import { Hono } from 'hono';
 
 import { openDb } from './db/index.ts';
 import { DefaultTitler } from './default-titler.ts';
+import { DiagnosticsRing } from './diagnostics.ts';
+import { checkRequestOrigin, parseAllowedOrigins } from './origin-guard.ts';
 import { ReplayBuffer } from './replay-buffer.ts';
+import { registerAttachmentsRoutes } from './routes/attachments.ts';
 import { registerCancelRoutes } from './routes/cancel.ts';
 import { registerConversationsRoutes } from './routes/conversations.ts';
+import { registerDiagnosticsRoutes } from './routes/diagnostics.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
+import { registerSkillsRoutes } from './routes/skills.ts';
+import { registerStaticRoutes } from './routes/static.ts';
 import { registerTranscriptRoutes } from './routes/transcript.ts';
 import { registerTurnRoutes } from './routes/turns.ts';
+import { DEFAULT_GRACE_MS, runSweeper } from './sweeper.ts';
 import type { Titler } from './titler.ts';
 import { EnvelopeIdSource } from './wire.ts';
 
@@ -78,6 +86,12 @@ export interface CreateAppOptions {
   /** Optional: SQLite handle paired with `store`. Both must be present together. */
   db?: Database;
   /**
+   * Optional (PR #38, env `CLOD_UI_CONVERSATION_CWD`): cwd for new
+   * conversations. Requires persistence; omitted = each conversation gets
+   * its own provisioned directory.
+   */
+  conversationCwd?: string;
+  /**
    * Optional: enables the per-conversation transcript watcher. Requires
    * persistence to be enabled too — without `store` + `db`, the engine cannot
    * recover the conversation's cwd at watcher-start time. When omitted, no
@@ -102,6 +116,29 @@ export interface CreateAppOptions {
     store: SettingsStore;
   };
   /**
+   * Optional: enables the skills-discovery route (`GET /skills`).
+   * Display-only by design (PR #31) — see skills-discovery.ts.
+   */
+  skills?: {
+    dirs: Array<{ scope: 'user' | 'project'; path: string }>;
+  };
+  /**
+   * Optional: enables the per-turn diagnostics ring + `GET /diagnostics`
+   * (PR #32). Wire-only (I-8) — never persisted.
+   */
+  diagnostics?: {
+    capacity?: number;
+  };
+  /**
+   * Optional: one attachments-orphan sweep pass at boot (PR #35).
+   * Requires persistence. Dry-run unless `dryRun: false` — deletion is
+   * a double opt-in. See sweeper.ts for the reference semantics.
+   */
+  sweeper?: {
+    dryRun?: boolean;
+    graceMs?: number;
+  };
+  /**
    * Optional: enables auto-titling. Requires persistence — without `store` +
    * `db`, the engine cannot read/write the manifest event. When omitted, no
    * auto-titling fires and no `conversation.titled` envelopes are emitted.
@@ -118,6 +155,16 @@ export interface CreateAppOptions {
    */
   replay?: {
     capacity?: number;
+  };
+  /**
+   * Optional: serves the built web SPA from `dir` as a GET catch-all
+   * registered after every API route. Wired by the launcher via
+   * `CLOD_UI_STATIC_DIR` so engine + web UI share one origin.
+   *
+   * Spec: plans/2026-06-10-clod-ui-pr21-launcher-v1.md §2.
+   */
+  static?: {
+    dir: string;
   };
 }
 
@@ -170,8 +217,17 @@ export function createApp(opts: CreateAppOptions): AppContext {
   if ((opts.store !== undefined) !== (opts.db !== undefined)) {
     throw new Error('createApp: store and db must be supplied together');
   }
+  if (opts.conversationCwd !== undefined && opts.store === undefined) {
+    throw new Error('createApp: conversationCwd requires persistence (store + db)');
+  }
   const persistence =
-    opts.store !== undefined && opts.db !== undefined ? { store: opts.store, db: opts.db } : null;
+    opts.store !== undefined && opts.db !== undefined
+      ? {
+          store: opts.store,
+          db: opts.db,
+          ...(opts.conversationCwd !== undefined && { defaultCwd: opts.conversationCwd }),
+        }
+      : null;
   const transcripts = opts.transcripts ?? null;
   if (transcripts && !persistence) {
     throw new Error(
@@ -185,6 +241,11 @@ export function createApp(opts: CreateAppOptions): AppContext {
     );
   }
   const settingsStore = opts.settings?.store ?? null;
+  const diagnosticsRing = opts.diagnostics
+    ? new DiagnosticsRing(
+        opts.diagnostics.capacity !== undefined ? { capacity: opts.diagnostics.capacity } : {},
+      )
+    : null;
 
   const app = new Hono();
 
@@ -200,13 +261,33 @@ export function createApp(opts: CreateAppOptions): AppContext {
     persistence,
     transcripts,
     titler,
+    diagnostics: diagnosticsRing,
   });
   registerCancelRoutes(app, { backend });
 
   // Opt-in routes.
   registerConversationsRoutes(app, { persistence });
+  registerAttachmentsRoutes(app, { persistence });
   registerTranscriptRoutes(app, { persistence, transcripts });
   registerSettingsRoutes(app, { store: settingsStore });
+  registerSkillsRoutes(app, { skills: opts.skills ?? null });
+  registerDiagnosticsRoutes(app, { ring: diagnosticsRing });
+  // Static SPA fallback must stay last — API routes win by registration order.
+  registerStaticRoutes(app, { staticDir: opts.static?.dir ?? null });
+
+  // Attachments orphan sweeper (PR #35): one fire-and-forget boot pass.
+  if (opts.sweeper && persistence) {
+    void runSweeper({
+      store: persistence.store,
+      db: persistence.db,
+      projectsDir: transcripts?.projectsDir ?? null,
+      dryRun: opts.sweeper.dryRun ?? true,
+      graceMs: opts.sweeper.graceMs ?? DEFAULT_GRACE_MS,
+    }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[sweeper] pass failed', err);
+    });
+  }
 
   return {
     app,
@@ -252,7 +333,21 @@ export function createApp(opts: CreateAppOptions): AppContext {
 
 // ---- default app + entrypoint ---------------------------------------------
 
-const defaultBackend = new RealClaudeBackend();
+// CLOD_UI_CLAUDE_BINARY (PR #38): run turns through a wrapper (e.g. a
+// project's seat script that appends its operator prompt) instead of the
+// bare `claude` on PATH.
+const claudeBinaryEnv = process.env['CLOD_UI_CLAUDE_BINARY'];
+// CLOD_UI_WARM_IDLE_MS (PR #39): how long a conversation's CLI process waits
+// for its next turn before it is retired. Default 1h, the prompt-cache TTL
+// the CLI requests; 0 = one process per turn (the pre-PR #39 behaviour).
+const warmIdleEnv = Number(process.env['CLOD_UI_WARM_IDLE_MS'] ?? 3_600_000);
+// CLOD_UI_WARM_MAX (PR #40): cap on warm processes, default 4.
+const warmMaxEnv = Number(process.env['CLOD_UI_WARM_MAX'] ?? 4);
+const defaultBackend = new RealClaudeBackend({
+  ...(claudeBinaryEnv ? { claudeBinary: claudeBinaryEnv } : {}),
+  warmIdleMs: Number.isFinite(warmIdleEnv) && warmIdleEnv > 0 ? warmIdleEnv : 0,
+  warmMax: Number.isInteger(warmMaxEnv) && warmMaxEnv > 0 ? warmMaxEnv : 4,
+});
 
 /** Resolve the app-data root from env/HOME. Used by the production entrypoint only. */
 function resolveAppDataDir(): string | null {
@@ -272,6 +367,18 @@ function resolveProjectsDir(): string | null {
   return null;
 }
 
+/** Resolve the skills roots for `GET /skills` (PR #31). */
+function resolveSkillsDirs(
+  projectDir: string = process.cwd(),
+): Array<{ scope: 'user' | 'project'; path: string }> {
+  const claudeHome =
+    process.env['CLAUDE_HOME'] ?? join(process.env['HOME'] ?? homedir(), '.claude');
+  return [
+    { scope: 'user', path: join(claudeHome, 'skills') },
+    { scope: 'project', path: join(projectDir, '.claude', 'skills') },
+  ];
+}
+
 /** Resolve `<CLAUDE_HOME>/settings.json` for the user-settings routes. */
 function resolveSettingsPath(): string | null {
   const claudeHome = process.env['CLAUDE_HOME'];
@@ -281,43 +388,22 @@ function resolveSettingsPath(): string | null {
   return null;
 }
 
-// Memory-only at import time. The production entrypoint (`import.meta.main`)
-// upgrades to persistent mode by creating a new context with `store` + `db`.
-// Tests that need persistence call `createApp` directly with their own store
-// and db rooted at a temp dir.
-const defaultContext = createApp({ backend: defaultBackend });
-export const app = defaultContext.app;
-
-// Only start the server when run directly (not when imported by tests).
-if (import.meta.main) {
-  defaultBackend.start();
-
-  const appDataDir = resolveAppDataDir();
-  const store = appDataDir ? new ManifestStore(appDataDir) : undefined;
-  const db = appDataDir ? openDb({ path: join(appDataDir, 'engine.sqlite') }) : undefined;
-  const projectsDir = store && db ? resolveProjectsDir() : null;
-  const settingsPath = resolveSettingsPath();
-  const settingsStore = settingsPath ? new SettingsStore({ path: settingsPath }) : undefined;
-  const liveContext =
-    store && db
-      ? createApp({
-          backend: defaultBackend,
-          store,
-          db,
-          ...(projectsDir ? { transcripts: { projectsDir } } : {}),
-          ...(settingsStore ? { settings: { store: settingsStore } } : {}),
-          // Auto-titling defaults to DefaultTitler (`claude -p` against Haiku,
-          // with FallbackTitler delegation on every failure path).
-          titler: new DefaultTitler(),
-        })
-      : settingsStore
-        ? createApp({ backend: defaultBackend, settings: { store: settingsStore } })
-        : defaultContext;
-
-  const portEnv = process.env['CLOD_UI_ENGINE_PORT'];
-  const port = portEnv ? Number(portEnv) : 0;
+/**
+ * Serve an `AppContext` over HTTP + WS on 127.0.0.1 (PR #36): wires the
+ * broadcast sink to live sockets and the `?since=` replay handshake.
+ * Shared by the production entrypoint below and the deep-tier E2E
+ * server (`tests/e2e/serve-deep.ts`) so the WS plumbing cannot drift.
+ */
+export function startEngineServer(
+  context: AppContext,
+  opts: {
+    port: number;
+    /** Extra origins accepted by the same-origin guard (PR #38). */
+    allowedOrigins?: readonly string[];
+  },
+): { server: ReturnType<typeof Bun.serve>; dropSockets: () => number } {
   const sockets = new Set<WebSocket>();
-  liveContext.setBroadcast((envelope) => {
+  context.setBroadcast((envelope) => {
     const data = JSON.stringify(envelope);
     for (const ws of sockets) {
       try {
@@ -330,16 +416,24 @@ if (import.meta.main) {
 
   const server = Bun.serve<{ sinceId: string | null }, never>({
     hostname: '127.0.0.1',
-    port,
+    port: opts.port,
     fetch: (req, srv) => {
       const url = new URL(req.url);
+      // Same-origin guard (PR #38): cross-site writes and WS handshakes are
+      // refused before routing — see origin-guard.ts for the threat.
+      if (!checkRequestOrigin(req, url.pathname === '/ws', opts.allowedOrigins ?? [])) {
+        return new Response(JSON.stringify({ error: 'cross-origin request refused' }), {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       if (url.pathname === '/ws') {
         const sinceId = url.searchParams.get('since');
         const upgraded = srv.upgrade(req, { data: { sinceId } });
         if (upgraded) return undefined;
         return new Response('upgrade failed', { status: 400 });
       }
-      return liveContext.app.fetch(req);
+      return context.app.fetch(req);
     },
     websocket: {
       open: (ws) => {
@@ -347,7 +441,7 @@ if (import.meta.main) {
         // before adding the socket to the live broadcast set, so the
         // client's stream is continuous.
         const sinceId = ws.data?.sinceId ?? null;
-        const replay = liveContext.computeReplay(sinceId);
+        const replay = context.computeReplay(sinceId);
         try {
           ws.send(JSON.stringify(replay.start));
           for (const env of replay.envelopes) {
@@ -365,6 +459,80 @@ if (import.meta.main) {
         /* no framed client→server protocol yet */
       },
     },
+  });
+
+  return {
+    server,
+    /** Test-tier affordance (PR #36): force-close every live WS. */
+    dropSockets: () => {
+      const n = sockets.size;
+      for (const ws of sockets) {
+        try {
+          ws.close(1012, 'test drop');
+        } catch {
+          /* already gone */
+        }
+      }
+      sockets.clear();
+      return n;
+    },
+  };
+}
+
+// Memory-only at import time. The production entrypoint (`import.meta.main`)
+// upgrades to persistent mode by creating a new context with `store` + `db`.
+// Tests that need persistence call `createApp` directly with their own store
+// and db rooted at a temp dir.
+const defaultContext = createApp({ backend: defaultBackend });
+export const app = defaultContext.app;
+
+// Only start the server when run directly (not when imported by tests).
+if (import.meta.main) {
+  defaultBackend.start();
+
+  const appDataDir = resolveAppDataDir();
+  // First boot on a fresh machine: SQLite cannot create its file inside a
+  // directory that doesn't exist yet.
+  if (appDataDir) mkdirSync(appDataDir, { recursive: true });
+  const store = appDataDir ? new ManifestStore(appDataDir) : undefined;
+  const db = appDataDir ? openDb({ path: join(appDataDir, 'engine.sqlite') }) : undefined;
+  const projectsDir = store && db ? resolveProjectsDir() : null;
+  const settingsPath = resolveSettingsPath();
+  const settingsStore = settingsPath ? new SettingsStore({ path: settingsPath }) : undefined;
+  // Static SPA serving — set by the launcher (PR #21) to apps/web/dist so
+  // the engine origin serves the web UI (same-origin production model).
+  const staticDir = process.env['CLOD_UI_STATIC_DIR'];
+  const liveOpts: CreateAppOptions = { backend: defaultBackend };
+  if (store && db) {
+    liveOpts.store = store;
+    liveOpts.db = db;
+    const conversationCwd = process.env['CLOD_UI_CONVERSATION_CWD'];
+    if (conversationCwd) liveOpts.conversationCwd = conversationCwd;
+    if (projectsDir) liveOpts.transcripts = { projectsDir };
+    // Auto-titling defaults to DefaultTitler (`claude -p` against Haiku,
+    // with FallbackTitler delegation on every failure path).
+    liveOpts.titler = new DefaultTitler();
+  }
+  if (settingsStore) liveOpts.settings = { store: settingsStore };
+  // Project skills follow the conversations' cwd when one is configured.
+  liveOpts.skills = { dirs: resolveSkillsDirs(liveOpts.conversationCwd) };
+  // Diagnostics: always on in production — localhost-only engine, the
+  // ring holds the operator's own (redacted) traffic.
+  liveOpts.diagnostics = {};
+  // Sweeper (PR #35): off unless CLOD_UI_SWEEPER is set; 'delete' is the
+  // only value that actually unlinks — everything else means dry-run.
+  const sweeperEnv = process.env['CLOD_UI_SWEEPER'];
+  if (sweeperEnv && store && db) {
+    liveOpts.sweeper = { dryRun: sweeperEnv !== 'delete' };
+  }
+  if (staticDir) liveOpts.static = { dir: staticDir };
+  const liveContext = createApp(liveOpts);
+
+  const portEnv = process.env['CLOD_UI_ENGINE_PORT'];
+  const port = portEnv ? Number(portEnv) : 0;
+  const { server } = startEngineServer(liveContext, {
+    port,
+    allowedOrigins: parseAllowedOrigins(process.env['CLOD_UI_ALLOWED_ORIGINS']),
   });
   // eslint-disable-next-line no-console
   console.log(`[engine] listening on http://127.0.0.1:${server.port}`);

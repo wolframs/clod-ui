@@ -86,6 +86,7 @@ describe('compose — thinking effort', () => {
     ['think', 'low'],
     ['think_hard', 'medium'],
     ['think_harder', 'high'],
+    ['xhigh', 'xhigh'],
     ['ultrathink', 'max'],
   ];
   for (const [input, expected] of rows) {
@@ -107,6 +108,7 @@ describe('compose — thinking effort', () => {
       think: 'low',
       think_hard: 'medium',
       think_harder: 'high',
+      xhigh: 'xhigh',
       ultrathink: 'max',
     });
   });
@@ -226,6 +228,20 @@ describe('compose — extraArgv (raw-flags escape hatch)', () => {
     const modelIdx = argv.lastIndexOf('--model');
     expect(argv[modelIdx + 1]).toBe('opus');
   });
+
+  test('per-turn extra_argv lands after the backend-level extraArgv (PR #28 D1)', () => {
+    const { argv } = compose(
+      { ...base(), extra_argv: ['--model', 'haiku'] },
+      { extraArgv: ['--model', 'opus'] },
+    );
+    expect(argv.slice(-4)).toEqual(['--model', 'opus', '--model', 'haiku']);
+  });
+
+  test('empty per-turn extra_argv composes nothing', () => {
+    const plain = compose(base()).argv;
+    const withEmpty = compose({ ...base(), extra_argv: [] }).argv;
+    expect(withEmpty).toEqual(plain);
+  });
 });
 
 describe('compose — stdin stream-JSON payload', () => {
@@ -253,12 +269,13 @@ describe('compose — stdin stream-JSON payload', () => {
     });
   });
 
-  test('appends image content blocks for image attachments', () => {
+  test('appends base64 image content blocks for loaded image attachments', () => {
     const { stdin } = compose({
       ...base(),
       user_message: 'look',
       attachments: [
-        { path: '/tmp/a.png', content_type: 'image/png' },
+        { path: '/tmp/a.png', content_type: 'image/png', data_base64: 'QUJD' },
+        { path: '/tmp/b.png', content_type: 'image/png' }, // bytes not loaded → --add-dir only
         { path: '/tmp/notes.txt', content_type: 'text/plain' }, // non-image, excluded from stdin
       ],
     });
@@ -268,7 +285,7 @@ describe('compose — stdin stream-JSON payload', () => {
         role: 'user',
         content: [
           { type: 'text', text: 'look' },
-          { type: 'image', source: { type: 'path', path: '/tmp/a.png' } },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUJD' } },
         ],
       },
     });

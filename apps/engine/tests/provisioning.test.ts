@@ -46,6 +46,16 @@ describe('ensureProvisioned', () => {
     expect(row?.claude_session_id).toBeNull();
   });
 
+  test('defaultCwd on the context anchors new conversations there (PR #38)', async () => {
+    const shared = join(root, 'project-repo');
+    const result = await ensureProvisioned({ store, db, defaultCwd: shared }, { convId: CONV_A });
+    expect(result.cwd).toBe(shared);
+    expect(existsSync(shared)).toBe(true);
+    expect(getConversation(db, CONV_A)?.cwd).toBe(shared);
+    // scratch stays per-conversation
+    expect(existsSync(join(store.conversationDir(CONV_A), 'scratch'))).toBe(true);
+  });
+
   test('second call on same id is a no-op (created:false, no duplicate manifest line)', async () => {
     await ensureProvisioned({ store, db }, { convId: CONV_A });
     const result2 = await ensureProvisioned({ store, db }, { convId: CONV_A });

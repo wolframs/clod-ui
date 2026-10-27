@@ -37,11 +37,14 @@ export interface SubmitArgs {
    * not provided defers to the backend default.
    */
   model?: string;
+  thinking_effort?: SubmitTurnInput['thinking_effort'];
   cwd?: string;
   resume_session_id?: string;
   allowed_tools?: string[];
   disallowed_tools?: string[];
   system_prompt?: SubmitTurnInput['system_prompt'];
+  extra_argv?: string[];
+  attachments?: SubmitTurnInput['attachments'];
 }
 
 export interface UseSubmitTurnReturn {
@@ -114,6 +117,7 @@ export function useSubmitTurn(opts: UseSubmitTurnOptions): UseSubmitTurnReturn {
         turn_id,
         user_message: args.user_message,
         ...(args.model !== undefined && { model: args.model }),
+        ...(args.thinking_effort !== undefined && { thinking_effort: args.thinking_effort }),
         ...(args.cwd !== undefined && { cwd: args.cwd }),
         ...(args.resume_session_id !== undefined && {
           resume_session_id: args.resume_session_id,
@@ -123,6 +127,8 @@ export function useSubmitTurn(opts: UseSubmitTurnOptions): UseSubmitTurnReturn {
           disallowed_tools: args.disallowed_tools,
         }),
         ...(args.system_prompt !== undefined && { system_prompt: args.system_prompt }),
+        ...(args.extra_argv !== undefined && { extra_argv: args.extra_argv }),
+        ...(args.attachments !== undefined && { attachments: args.attachments }),
       };
 
       try {
@@ -135,6 +141,9 @@ export function useSubmitTurn(opts: UseSubmitTurnOptions): UseSubmitTurnReturn {
         return turn_id;
       } catch (err) {
         if (inflightRef.current === turn_id) {
+          // The engine refused the turn, so there is nothing to cancel and
+          // nothing in flight: the composer must not wait on this id.
+          setLastTurnId(undefined);
           setState({
             status: 'error',
             error: err as ClientError | Error,

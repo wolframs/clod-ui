@@ -5,15 +5,18 @@
  * tool cards, status pill, and per-status add-ons (usage badge / error
  * panel / escalation).
  *
- * No state, no effects, no event handlers. Pure function from `TurnState`
- * to JSX. Click-to-toggle, markdown, and virtualization land in PR #18d
- * (named TODOs below).
+ * Presentational with one interactive concession: ToolCard owns a single
+ * `useState` for its collapse toggle (PR #18d.3, Invariant I-4 — state
+ * enters only when interactivity forces it). Virtualization is still
+ * deferred (named TODO below).
  *
  * Spec: plans/landed/2026-05-02-clod-ui-pr18c-turn-view-v1.md.
  */
 import type { ClodError } from '@clod-ui/contracts';
+import { useState } from 'react';
 
-import type { ToolCall, TurnState } from '@/lib/turn-reducer';
+import { Markdown } from '@/components/markdown';
+import type { ToolCall, TurnState, TurnUsage } from '@/lib/turn-reducer';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -44,7 +47,9 @@ export function TurnView({ state, className }: TurnViewProps): JSX.Element {
 
   return (
     <div
-      className={cn('flex h-full w-full flex-col gap-4 overflow-y-auto p-6', className)}
+      // Scroll-agnostic since PR #18d.1: the single scroll container lives in
+      // App.tsx; this view renders at natural height below TranscriptHistory.
+      className={cn('flex w-full flex-col gap-4 p-6', className)}
       data-test="turn-view"
       data-state={state.status}
       data-turn-id={state.turn_id}
@@ -56,6 +61,15 @@ export function TurnView({ state, className }: TurnViewProps): JSX.Element {
         />
         {state.status === 'completed' && state.usage !== undefined ? (
           <UsageBadge usage={state.usage} />
+        ) : null}
+        {state.model !== undefined ? (
+          <span
+            className="ml-auto font-mono text-xs text-muted-foreground"
+            title="Model the CLI resolved for this turn"
+            data-test="turn-model"
+          >
+            {state.model}
+          </span>
         ) : null}
         {state.session_id !== undefined ? (
           <span className="font-mono text-xs text-muted-foreground" title="Claude session id">
@@ -95,19 +109,16 @@ export interface AssistantMessageProps {
 }
 
 export function AssistantMessage({ text, complete }: AssistantMessageProps): JSX.Element {
-  // TODO(markdown-renderer): swap <pre> for react-markdown + GFM + code-block
-  // highlighting in PR #18d. Until then, whitespace-pre-wrap preserves
-  // formatting verbatim — readable for code, prose, and lists.
+  // Markdown since PR #18d.2. The streaming cursor renders as a sibling
+  // after the parsed tree (it can't live inside it — plan §3.4).
   return (
     <article
       className="rounded-md border border-border bg-card p-4 text-sm text-foreground"
       data-test="assistant-message"
       data-streaming={complete ? 'false' : 'true'}
     >
-      <pre className="whitespace-pre-wrap break-words font-sans">
-        {text}
-        {complete ? null : <StreamingCursor />}
-      </pre>
+      <Markdown text={text} />
+      {complete ? null : <StreamingCursor />}
     </article>
   );
 }
@@ -164,6 +175,10 @@ export interface ToolCardProps {
 
 export function ToolCard({ tool }: ToolCardProps): JSX.Element {
   const inputText = stringifyJson(tool.input);
+  // Collapsible since PR #18d.3: collapsed by default, errors start expanded
+  // (plan §2.2). Collapse is `hidden`, not unmount — body markers stay in
+  // the DOM for tests and a11y tree consistency (plan §2.1).
+  const [collapsed, setCollapsed] = useState<boolean>(tool.status !== 'error');
   return (
     <article
       className="rounded-md border border-border bg-card text-xs"
@@ -171,15 +186,27 @@ export function ToolCard({ tool }: ToolCardProps): JSX.Element {
       data-tool-id={tool.tool_use_id}
       data-tool-status={tool.status}
       data-tool-name={tool.name}
+      data-collapsed={collapsed ? 'true' : 'false'}
     >
-      <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <span className="font-mono font-semibold text-foreground">{tool.name}</span>
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        aria-expanded={!collapsed}
+        className={cn(
+          'flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/30',
+          collapsed ? '' : 'border-b border-border',
+        )}
+        data-test="tool-card-toggle"
+      >
+        <span className="flex items-center gap-1.5 font-mono font-semibold text-foreground">
+          <span aria-hidden="true" className="inline-block w-3 text-muted-foreground">
+            {collapsed ? '▸' : '▾'}
+          </span>
+          {tool.name}
+        </span>
         <ToolStatusIndicator status={tool.status} />
-      </header>
-      {/* TODO(tool-card-collapse): click-to-toggle expand/collapse with
-          useState in PR #18d. Until then, fixed-height scroll boxes keep
-          long inputs and results from dominating the layout. */}
-      <div className="flex flex-col gap-2 p-3">
+      </button>
+      <div className="flex flex-col gap-2 p-3" hidden={collapsed}>
         <section>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Input
@@ -314,13 +341,33 @@ export function TurnStatusPill({ status, escalation }: TurnStatusPillProps): JSX
 // ---------------------------------------------------------------------------
 
 export interface UsageBadgeProps {
-  usage: { input_tokens?: number; output_tokens?: number };
+  usage: TurnUsage;
+}
+
+/** 57141 → "57.1k"; below 1000 unchanged. */
+export function compactTokens(n: number): string {
+  return n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`;
+}
+
+/**
+ * Share of the turn's prompt served from cache, in whole percent, or
+ * undefined when the CLI reported no cache fields.
+ */
+export function cacheHitPercent(usage: TurnUsage): number | undefined {
+  const read = usage.cache_read_input_tokens;
+  const write = usage.cache_creation_input_tokens;
+  if (read === undefined && write === undefined) return undefined;
+  const total = (read ?? 0) + (write ?? 0) + (usage.input_tokens ?? 0);
+  return total === 0 ? undefined : Math.floor(((read ?? 0) / total) * 100);
 }
 
 export function UsageBadge({ usage }: UsageBadgeProps): JSX.Element {
   const inTok = usage.input_tokens;
   const outTok = usage.output_tokens;
-  const hasAny = inTok !== undefined || outTok !== undefined;
+  const read = usage.cache_read_input_tokens;
+  const write = usage.cache_creation_input_tokens;
+  const hit = cacheHitPercent(usage);
+  const hasAny = inTok !== undefined || outTok !== undefined || hit !== undefined;
   return (
     <span
       className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2 py-0.5 font-mono text-xs text-muted-foreground"
@@ -328,8 +375,20 @@ export function UsageBadge({ usage }: UsageBadgeProps): JSX.Element {
     >
       {hasAny ? (
         <>
-          <span data-test="usage-input">{inTok !== undefined ? `↑ ${inTok}` : '↑ —'}</span>
-          <span data-test="usage-output">{outTok !== undefined ? `↓ ${outTok}` : '↓ —'}</span>
+          <span data-test="usage-input" title="uncached input tokens">
+            {inTok !== undefined ? `↑ ${compactTokens(inTok)}` : '↑ —'}
+          </span>
+          {hit !== undefined ? (
+            <span
+              data-test="usage-cache"
+              title={`prompt cache: ${read ?? 0} tokens read, ${write ?? 0} written`}
+            >
+              {`cache ${hit}% · ${compactTokens(read ?? 0)} read · ${compactTokens(write ?? 0)} written`}
+            </span>
+          ) : null}
+          <span data-test="usage-output" title="output tokens">
+            {outTok !== undefined ? `↓ ${compactTokens(outTok)}` : '↓ —'}
+          </span>
         </>
       ) : (
         <span>—</span>

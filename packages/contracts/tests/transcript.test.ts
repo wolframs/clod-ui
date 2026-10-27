@@ -2,7 +2,7 @@
  * TranscriptLineSchema + TranscriptResponseSchema unit tests. Pins the wire
  * shape that backs `GET /conversations/:id/transcript`.
  *
- * Spec: plans/2026-05-02-clod-ui-pr20a-transcript-route-v1.md §3.
+ * Spec: plans/landed/2026-05-02-clod-ui-pr20a-transcript-route-v1.md §3.
  */
 import { describe, expect, test } from 'bun:test';
 

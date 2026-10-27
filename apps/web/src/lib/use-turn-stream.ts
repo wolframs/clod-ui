@@ -18,7 +18,7 @@ import type { EventEnvelope } from '@clod-ui/contracts';
 import { useState } from 'react';
 
 import { INITIAL_TURN_STATE, type TurnState, turnReducer } from './turn-reducer.ts';
-import { useSubscribe } from './use-subscribe.ts';
+import { useSubscribe, type SubscribeState } from './use-subscribe.ts';
 
 export interface UseTurnStreamOptions {
   /** Conversation id to project. Required. */
@@ -33,40 +33,57 @@ export interface UseTurnStreamOptions {
    * a turn observation from a known checkpoint.
    */
   since?: string;
+  /**
+   * Sees every envelope on the socket, before the conv_id filter. For
+   * cross-conversation signals (`conversation.titled` refreshing the
+   * sidebar) without opening a second socket. Ref-stable like `on`.
+   */
+  onAnyEnvelope?: (env: EventEnvelope) => void;
+}
+
+export interface UseTurnStreamResult {
+  /** Typed projection of the active turn (folded via `turnReducer`). */
+  turn: TurnState;
+  /**
+   * Connection state of the underlying subscription — the one feeding
+   * `turn`, not a separate probe. Drives `<ConnectionBanner />` (PR #22).
+   */
+  connection: SubscribeState;
 }
 
 /**
- * Returns the typed projection of the active turn for `conv_id`. Starts at
+ * Returns the typed projection of the active turn for `conv_id` plus the
+ * underlying subscription's connection state. The turn starts at
  * `{ status: 'idle' }` until a `system.init` envelope for this `conv_id`
  * arrives; then transitions through `streaming` → terminal status as
  * envelopes flow.
  *
- * When `conv_id` changes, the state resets synchronously to `idle` (via the
- * "adjust state on prop change" pattern from the React docs) so the
- * consumer never sees stale data from the previous conversation.
+ * Every conversation's turn is projected, not just the selected one: the
+ * socket is shared, so switching A → B → A while A streams must come back
+ * to A's live turn, not to `idle` (the subscription does not replay on a
+ * selection change). The consumer only ever sees the projection for
+ * `conv_id`, so it never observes another conversation's data.
  */
-export function useTurnStream(options: UseTurnStreamOptions): TurnState {
+export function useTurnStream(options: UseTurnStreamOptions): UseTurnStreamResult {
   const { conv_id, enabled = true } = options;
 
-  // "Adjust state on prop change" pattern: when `conv_id` changes, both
-  // `trackedConvId` and `state` reset *during* the render that observed the
-  // change. React will discard the in-progress render and start a new one
-  // with the fresh values, so the consumer never observes the stale state.
-  const [trackedConvId, setTrackedConvId] = useState(conv_id);
-  const [state, setState] = useState<TurnState>(INITIAL_TURN_STATE);
-  if (trackedConvId !== conv_id) {
-    setTrackedConvId(conv_id);
-    setState(INITIAL_TURN_STATE);
-  }
+  const [byConv, setByConv] = useState<Record<string, TurnState>>({});
+  const state = byConv[conv_id] ?? INITIAL_TURN_STATE;
 
-  useSubscribe({
+  const connection = useSubscribe({
     enabled,
     ...(options.since !== undefined ? { since: options.since } : {}),
     onEnvelope: (env: EventEnvelope) => {
-      if (env.conv_id !== conv_id) return;
-      setState((prev) => turnReducer(prev, env));
+      options.onAnyEnvelope?.(env);
+      const id = env.conv_id;
+      if (typeof id !== 'string' || id === '') return;
+      setByConv((prev) => {
+        const before = prev[id] ?? INITIAL_TURN_STATE;
+        const after = turnReducer(before, env);
+        return after === before ? prev : { ...prev, [id]: after };
+      });
     },
   });
 
-  return state;
+  return { turn: state, connection };
 }

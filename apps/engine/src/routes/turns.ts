@@ -26,19 +26,20 @@
  *
  * Spec sources: plans/landed/{pr4,pr5,pr6,pr7,pr10}-*.md.
  */
+import { readFile } from 'node:fs/promises';
+
 import type { ClaudeBackend } from '@clod-ui/backend';
-import { classifyCliFailure } from '@clod-ui/backend';
+import { classifyCliFailure, compose } from '@clod-ui/backend';
 import type { EventEnvelope } from '@clod-ui/contracts';
-import type { ManifestStore } from '@clod-ui/manifest';
 import type { TranscriptUpdatedEvent } from '@clod-ui/transcripts';
 import { TranscriptWatcher } from '@clod-ui/transcripts';
-import type { Database } from 'bun:sqlite';
 import type { Hono } from 'hono';
 
 import { getConversation } from '../db/index.ts';
+import type { DiagnosticsRing } from '../diagnostics.ts';
 import { maybeTitle } from '../maybe-title.ts';
 import { parseTurnBody } from '../parse-turn-body.ts';
-import { ensureProvisioned, recordSessionId } from '../provisioning.ts';
+import { ensureProvisioned, recordSessionId, type ProvisioningContext } from '../provisioning.ts';
 import type { Titler } from '../titler.ts';
 import type { EnvelopeIdSource } from '../wire.ts';
 import { wrap } from '../wire.ts';
@@ -60,9 +61,11 @@ export interface TurnsRouteDeps {
   activeTurnByConv: Map<string, string>;
   /** conv_id → live transcript watcher; shared with cancelAll(). */
   watchers: Map<string, TranscriptWatcher>;
-  persistence: { store: ManifestStore; db: Database } | null;
+  persistence: ProvisioningContext | null;
   transcripts: TranscriptOptions | null;
   titler: Titler | null;
+  /** Optional per-turn diagnostics ring (PR #32); null = zero recording work. */
+  diagnostics: DiagnosticsRing | null;
 }
 
 export function registerTurnRoutes(app: Hono, deps: TurnsRouteDeps): void {
@@ -76,6 +79,7 @@ export function registerTurnRoutes(app: Hono, deps: TurnsRouteDeps): void {
     persistence,
     transcripts,
     titler,
+    diagnostics,
   } = deps;
   /** turn_id → assistant text accumulated from deltas. Cleared on terminator. */
   const turnAssistantText = new Map<string, string>();
@@ -138,6 +142,43 @@ export function registerTurnRoutes(app: Hono, deps: TurnsRouteDeps): void {
       turnAssistantText.set(req.turn_id, '');
     }
 
+    // Attachments (PR #33): load image bytes so compose() can emit the
+    // API-standard base64 content block (the CLI rejects path sources —
+    // pinned by the PR #33 smoke). Missing/unreadable files degrade to
+    // --add-dir-only retrieval rather than failing the turn.
+    if (req.attachments) {
+      for (const att of req.attachments) {
+        if (att.content_type?.startsWith('image/') && att.data_base64 === undefined) {
+          try {
+            att.data_base64 = Buffer.from(await readFile(att.path)).toString('base64');
+          } catch {
+            // leave without data; the model can still Read via --add-dir
+          }
+        }
+      }
+    }
+
+    // Diagnostics (PR #32): record what WOULD spawn. compose() is pure and
+    // deterministic, so this recompute matches RealClaudeBackend's spawn;
+    // redaction happens inside ring.start (record time, D1). PR #39: a turn
+    // fed to the conversation's warm process records that process's argv.
+    if (diagnostics) {
+      const composed = compose(
+        req,
+        backend.claudeBinary !== undefined ? { claudeBinary: backend.claudeBinary } : {},
+      );
+      const reusedArgv = backend.reusableArgv?.(req);
+      diagnostics.start({
+        turn_id: req.turn_id,
+        conv_id: convId,
+        argv: reusedArgv ?? composed.argv,
+        process: reusedArgv !== undefined ? 'reused' : 'spawned',
+        env: composed.env,
+        stdin_bytes: composed.stdin.byteLength,
+        cwd: composed.cwd,
+      });
+    }
+
     // Fire-and-forget stream into connected sockets; the HTTP response just
     // acknowledges acceptance.
     void (async () => {
@@ -184,6 +225,12 @@ export function registerTurnRoutes(app: Hono, deps: TurnsRouteDeps): void {
             const prev = turnAssistantText.get(req.turn_id) ?? '';
             turnAssistantText.set(req.turn_id, prev + ev.text);
           }
+          diagnostics?.addEvent(req.turn_id, ev);
+          if (ev.kind === 'turn.result') diagnostics?.finish(req.turn_id, { kind: 'result' });
+          if (ev.kind === 'turn.cancelled') diagnostics?.finish(req.turn_id, { kind: 'cancelled' });
+          if (ev.kind === 'turn.error') {
+            diagnostics?.finish(req.turn_id, { kind: 'error', detail: JSON.stringify(ev.error) });
+          }
           getBroadcast()(wrap(envelopeIds.next(), ev, convId));
           if (
             titler &&
@@ -211,6 +258,10 @@ export function registerTurnRoutes(app: Hono, deps: TurnsRouteDeps): void {
         // error envelope carries the right kind / retryable flag.
         const refined = classifyCliFailure({
           ...(err instanceof Error ? { raw_stderr: err.message } : {}),
+        });
+        diagnostics?.finish(req.turn_id, {
+          kind: 'error',
+          detail: err instanceof Error ? err.message : String(err),
         });
         getBroadcast()(
           wrap(

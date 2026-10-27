@@ -19,6 +19,7 @@ export const THINKING_EFFORT_MAP: Readonly<
   think: 'low',
   think_hard: 'medium',
   think_harder: 'high',
+  xhigh: 'xhigh', // CLI 2.1.175 level, pinned by PR #37 evidence
   ultrathink: 'max',
 };
 
@@ -43,9 +44,12 @@ export interface ComposeResult {
   cwd: string;
   /**
    * Skills requested for this turn. Not currently producible as argv —
-   * Claude Code's skills enablement lives elsewhere (Phase 5.6, SkillsBackend).
-   * Surfaced so the caller can fail loudly if unhandled.
+   * the CLI (2.1.175) resolves skills via `/skill-name` in the prompt
+   * and exposes no per-skill flag (PR #31 investigation). Surfaced so
+   * the caller can fail loudly if unhandled.
    */
+  // TODO(skills-enablement): revisit when the CLI documents a per-skill
+  // mechanism; discovery/display shipped in PR #31 (GET /skills).
   pendingSkills?: string[];
 }
 
@@ -103,8 +107,14 @@ export function compose(req: TurnRequest, opts: ComposeOptions = {}): ComposeRes
     argv.push('--add-dir', dir);
   }
 
+  // Escape-hatch tail (Task 5.8): backend-level config first, then the
+  // per-turn wire field — most specific last, so it wins by trailing
+  // duplication (the CLI's last-flag-wins behavior, pinned in tests).
   if (opts.extraArgv && opts.extraArgv.length > 0) {
     argv.push(...opts.extraArgv);
+  }
+  if (req.extra_argv && req.extra_argv.length > 0) {
+    argv.push(...req.extra_argv);
   }
 
   const result: ComposeResult = {
@@ -125,16 +135,24 @@ export function compose(req: TurnRequest, opts: ComposeOptions = {}): ComposeRes
  * Shape (best-effort per `claude --help` + SDK docs, to be pinned by a real
  * tape in PR #4):
  *
- *   {"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}, {"type":"image","source":{"type":"path","path":"..."}}]}}
+ *   {"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}, {"type":"image","source":{"type":"base64","media_type":"image/png","data":"..."}}]}}
  *
- * For non-image attachments we rely on `--add-dir` + the user including a
- * file path in their prompt (Phase 6.3) — we do *not* inline bytes.
+ * Pinned by the PR #33 real-CLI smoke: image blocks need the API-standard
+ * base64 source (a path source is rejected and stripped). Non-image
+ * attachments rely on `--add-dir` + tool-driven retrieval.
  */
 function encodeStdin(req: TurnRequest): Uint8Array {
   const content: Array<Record<string, unknown>> = [{ type: 'text', text: req.user_message }];
   for (const att of req.attachments ?? []) {
-    if (isImageContentType(att.content_type)) {
-      content.push({ type: 'image', source: { type: 'path', path: att.path } });
+    // Real-CLI evidence (PR #33 smoke): a path-source image block is
+    // rejected ("image could not be processed"); the API-standard base64
+    // source is what stream-json input accepts. Images without loaded
+    // bytes fall back to tool-driven retrieval via --add-dir.
+    if (isImageContentType(att.content_type) && att.data_base64 !== undefined) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: att.content_type, data: att.data_base64 },
+      });
     }
     // non-image attachments: tool-driven retrieval via --add-dir (no inline).
   }

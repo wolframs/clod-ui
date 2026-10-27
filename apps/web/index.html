@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Clod UI</title>
+    <script>
+      // FOUC guard (PR #26 D6): set data-theme before first paint.
+      // Mirrored copy of the resolve logic in src/lib/theme.ts — keep in sync.
+      (function () {
+        try {
+          var pref = localStorage.getItem('clod-ui:theme');
+          if (pref !== 'light' && pref !== 'dark') {
+            pref = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.dataset.theme = pref;
+        } catch (e) {
+          /* storage unavailable — render light, useTheme takes over */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

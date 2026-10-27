@@ -25,6 +25,12 @@ export interface ProvisioningContext {
   store: ManifestStore;
   /** Engine's SQLite index. */
   db: Database;
+  /**
+   * Optional (PR #38): cwd for newly provisioned conversations instead of
+   * their own `<conv>/cwd/` dir — e.g. a project repo whose CLAUDE.md,
+   * hooks and MCP config the CLI should load. Existing rows keep theirs.
+   */
+  defaultCwd?: string;
 }
 
 /**
@@ -41,7 +47,7 @@ export async function ensureProvisioned(
   }
 
   const convDir = ctx.store.conversationDir(args.convId);
-  const cwdDir = args.cwd ?? join(convDir, 'cwd');
+  const cwdDir = args.cwd ?? ctx.defaultCwd ?? join(convDir, 'cwd');
   const scratchDir = join(convDir, 'scratch');
   mkdirSync(cwdDir, { recursive: true });
   mkdirSync(scratchDir, { recursive: true });

@@ -77,7 +77,8 @@ describe('useSubmitTurn — submission state machine', () => {
     if (result.current.state.status !== 'error') throw new Error('unreachable');
     expect(result.current.state.error).toBe(err);
     expect(result.current.state.attempted_text).toBe('will fail');
-    expect(result.current.lastTurnId).toBe('turn-2');
+    // A refused turn never ran: nothing to cancel, nothing in flight.
+    expect(result.current.lastTurnId).toBeUndefined();
   });
 
   test('reset() returns to idle from error', async () => {

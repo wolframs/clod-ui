@@ -9,13 +9,21 @@
 import type { ZodType } from 'zod';
 
 import {
+  AttachmentMetaSchema,
+  type AttachmentMeta,
+  type AttachmentUploadBody,
+} from '../attachments.ts';
+import {
   ConversationsListResponseSchema,
   type ConversationsListResponse,
 } from '../conversations.ts';
+import { DiagnosticsResponseSchema, type DiagnosticsResponse } from '../diagnostics.ts';
 import type { EventEnvelope } from '../event-envelope.ts';
 import { HealthResponseSchema, type HealthResponse } from '../health.ts';
 import { ClaudeSettingsSchema, type ClaudeSettings } from '../settings.ts';
+import { SkillsResponseSchema, type SkillsResponse } from '../skills.ts';
 import { TranscriptResponseSchema, type TranscriptResponse } from '../transcript.ts';
+import type { ThinkingEffort } from '../turn.ts';
 
 import { ClientError } from './errors.ts';
 import type { HttpMethod, Subscription, Transport, TransportResponse } from './transport.ts';
@@ -29,11 +37,16 @@ export interface SubmitTurnInput {
   turn_id: string;
   user_message: string;
   model?: string;
+  thinking_effort?: ThinkingEffort;
   cwd?: string;
   resume_session_id?: string;
   allowed_tools?: string[];
   disallowed_tools?: string[];
   system_prompt?: { mode: 'append' | 'override'; text: string };
+  /** Raw-flags escape hatch — appended verbatim at the argv tail (PR #28). */
+  extra_argv?: string[];
+  /** File-by-reference attachments (PR #33): paths from uploadAttachment. */
+  attachments?: Array<{ path: string; content_type?: string }>;
 }
 
 export interface CancelTurnInput {
@@ -102,6 +115,16 @@ export interface Client {
    * Unknown conversation surfaces as `ClientError { kind: 'http', status: 404 }`.
    */
   getTranscript(conv_id: string, opts?: RequestOptions): Promise<TranscriptResponse>;
+  /** Skills discovery (PR #31). 404 → ClientError.kind 'not_configured'. */
+  getSkills(opts?: RequestOptions): Promise<SkillsResponse>;
+  /** Per-turn diagnostics ring (PR #32). 404 → 'not_configured'. */
+  getDiagnostics(opts?: RequestOptions): Promise<DiagnosticsResponse>;
+  /** Attachment intake (PR #33). 404 → 'not_configured'. */
+  uploadAttachment(
+    conv_id: string,
+    body: AttachmentUploadBody,
+    opts?: RequestOptions,
+  ): Promise<AttachmentMeta>;
 
   // ---- turns ------------------------------------------------------------
   submitTurn(input: SubmitTurnInput, opts?: RequestOptions): Promise<void>;
@@ -197,6 +220,28 @@ export function createClient(opts: CreateClientOptions): Client {
         method: 'GET',
         path: '/conversations',
         schema: ConversationsListResponseSchema,
+        ...(o?.signal ? { signal: o.signal } : {}),
+      }),
+    getSkills: (o) =>
+      send({
+        method: 'GET',
+        path: '/skills',
+        schema: SkillsResponseSchema,
+        ...(o?.signal ? { signal: o.signal } : {}),
+      }),
+    getDiagnostics: (o) =>
+      send({
+        method: 'GET',
+        path: '/diagnostics',
+        schema: DiagnosticsResponseSchema,
+        ...(o?.signal ? { signal: o.signal } : {}),
+      }),
+    uploadAttachment: (conv_id, body, o) =>
+      send({
+        method: 'POST',
+        path: `/conversations/${encodeURIComponent(conv_id)}/attachments`,
+        body,
+        schema: AttachmentMetaSchema,
         ...(o?.signal ? { signal: o.signal } : {}),
       }),
     getTranscript: (conv_id, o) =>

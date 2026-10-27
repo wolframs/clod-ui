@@ -1,75 +1,47 @@
 # Clod UI
 
 A chat UI that routes every conversation through the Claude Code CLI instead of
-calling an API directly. A Bun engine spawns `claude` headless
-(`-p --output-format stream-json`), streams its events over WebSocket, and a
-React app renders them. The point is that the operator can see and set the
-things the CLI normally hides: model, tool allowlist, system prompt, session
-resume.
+calling an API directly. A Bun engine runs `claude` headless
+(`-p --input-format stream-json --output-format stream-json`), streams its
+events over WebSocket, and a React app renders them. The point is that the
+operator can see and set the things the CLI normally hides: model, effort, tool
+allow and deny lists, system prompt, raw flags, session resume, and the exact
+argv each turn ran with.
 
-**Status — the owner's own words:** "Personal tool, under construction. Not
-intended for third-party use."
+**Status, in the owner's words:** "Personal tool, under construction. Not
+intended for third-party use." A one-screen progress overview is in
+[`docs/PROGRESS.md`](./docs/PROGRESS.md).
 
-<!-- DRAFT: needs author -->
+## What works today
 
-## Work in progress: what works today
+- **One command starts it.** `bun run start` builds the web app if it is
+  missing, boots the engine, serves the app from the same origin and opens a
+  browser. If the engine crashes, the launcher restarts it once on the same
+  port while the UI shows a reconnecting banner.
+- **The conversation loop:** a sidebar, history, streaming turns with tool and
+  thinking cards, markdown, submit and cancel, auto-titling, and
+  reconnect-and-resume.
+- **Per-conversation controls:** model, thinking effort, system prompt (append
+  or override), tool allow and deny lists, and raw extra argv. Each control
+  maps to a CLI flag you can see.
+- **Panels:** a settings editor for Claude Code's own `settings.json` (shows a
+  diff before saving), a read-only list of discoverable skills, and a Debug
+  panel. The Debug panel shows each turn's redacted argv and event timeline,
+  whether the turn spawned a process or reused one, and a "Copy repro" button.
+- **Attachments:** pick files or drag them into the composer. Images reach the
+  model as base64 blocks; other files are reachable through `--add-dir`.
+- **Warm processes:** each conversation keeps one CLI process alive between
+  turns. SessionStart hooks run once per conversation rather than once per
+  turn, and later turns skip CLI startup. The usage badge shows how much of
+  each turn was read from the prompt cache and how much was written. Idle,
+  errored and surplus processes are retired by a bounded EOF → SIGTERM →
+  SIGKILL sequence that ends only when the whole process group is gone.
+- **Theme and keys:** light and dark themes (follows the OS unless you pick
+  one), plus a keyboard map: `n`, `/`, `j`/`k`, `?`, `Esc`.
 
-Clod UI is unfinished. The engine is the complete half; the browser UI is a
-plain text chat on top of it.
-
-- **The engine runs.** It answers `GET /health` (including the installed CLI
-  version), creates and lists conversations, starts a turn by spawning one
-  `claude` process, cancels it by killing that process's whole group, serves
-  the conversation's transcript, reads and writes Claude Code's
-  `settings.json`, and titles each conversation by asking Haiku through a
-  second `claude -p`. Its turn endpoint accepts a model, tool allow and deny
-  lists, a system prompt (append or override), a working directory and a
-  session to resume.
-- **The web app** has a conversation sidebar, a text composer with cancel, a
-  streaming view of the active turn, the conversation's history, and a health
-  badge. It sends only the text you type; none of the controls above have a UI
-  yet, and neither do effort or attachments, which the backend can pass to the
-  CLI but the engine does not accept.
-- **The two halves do not meet in a browser yet.** The launcher that is meant
-  to serve both from one origin is a stub, and the engine sends no CORS
-  headers, so a page on the Vite dev server cannot read the engine's replies.
-  The web app is tested against a mock engine; the engine is tested against
-  recorded and scripted CLI output.
-
-Also not built yet:
-
-<!-- /DRAFT -->
-
-- **Launcher** is [nine lines](./apps/launcher/src/index.ts) that log and exit.
-  Nothing supervises the engine or opens a browser.
-- **Rendering is plain.** Assistant text goes through `<pre>`; no markdown, no
-  syntax highlighting, no collapsible tool cards, no scroll-to-bottom. Each is
-  a named TODO in `turn-view.tsx` / `transcript-history.tsx`.
-- **`ci:deep` / `ci:nightly`** run `ci:fast`, print a TODO and exit 0. The
-  layers they are named after (Playwright, chaos, real-CLI smoke, tape diff) do
-  not exist.
-- **No e2e tests.** `tests/e2e/` and `tests/smoke/` hold only `.gitkeep`.
-
-## The event log
-
-[`packages/manifest`](./packages/manifest) is an append-only NDJSON log, one
-file per conversation at
-`<app-data>/conversations/<conv-id>/manifest.json`. Each line is a
-`ManifestEvent` carrying `seq`, `ts`, `hash_self` and `hash_prev` over a
-canonical JSON encoding, so tampering with an earlier line is detectable.
-Event kinds are the conversation's state changes — `conversation.created`,
-`conversation.titled`, `session.captured`, `settings.applied`,
-`model.changed`, `tool_config.changed`, `attachment.added`,
-`artifact.observed`, and others. Projected state is a pure fold over the log;
-nothing rewrites an earlier line. Appends are `O_APPEND` and unsynced: losing
-the last few events to power loss is accepted, corrupting earlier ones is not.
-
-A SQLite index (`engine.sqlite`) sits alongside it for list queries. The log is
-authoritative; the index is derived.
-
-Separately, [`packages/transcripts`](./packages/transcripts) tails Claude Code's
-own JSONL session files under `<CLAUDE_HOME>/projects/<encoded-cwd>/` and
-normalizes them into typed chat messages. That is the CLI's record, not ours.
+Not built yet: `ci:nightly` (tape replay and a real-CLI smoke) is a stub,
+chaos and performance test tiers do not exist, and the launcher only builds
+the web app when it is missing.
 
 ## Prerequisites
 
@@ -79,37 +51,48 @@ normalizes them into typed chat messages. That is the CLI's record, not ours.
 - **Claude Code CLI** on `PATH`, installed and authenticated. See
   [Anthropic's install docs](https://docs.claude.com/en/docs/claude-code/quickstart).
   Clod UI stores no credentials of its own; it inherits the CLI's.
-- Developed on macOS. The full gate also runs on Linux, in GitHub Actions and
-  locally. Windows is untested.
+- Developed on macOS. The fast gate also runs on Linux in GitHub Actions.
+  Windows is untested.
 
 ## Run it
 
 ```sh
 bun install
-bun run ci:fast    # the whole gate: install, lint, typecheck, format, tests, README link-check
+bun run ci:fast      # the whole gate: install, lint, typecheck, format, tests, README link-check
+bun run start        # builds web (first run), starts the engine, opens a browser
 ```
 
-There is no single command that starts the product, because
-`apps/launcher` still only logs and exits. The two halves start separately:
+## Environment
+
+Read by the engine (the launcher passes its environment through). A template
+with the remaining development variables is in [`.env.example`](./.env.example);
+none of them are secrets.
+
+| Variable                   | Effect                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| `CLOD_UI_ENGINE_PORT`      | Fixed port instead of an ephemeral one.                                                          |
+| `CLOD_UI_NO_BROWSER`       | Launcher does not open a browser.                                                                |
+| `CLOD_UI_APP_DATA_DIR`     | App data root (default `~/.local/share/clod-ui`).                                                |
+| `CLOD_UI_CONVERSATION_CWD` | New conversations run in this directory (its CLAUDE.md, hooks, MCP config) instead of their own. |
+| `CLOD_UI_CLAUDE_BINARY`    | Binary or wrapper script spawned for turns (default `claude` on PATH).                           |
+| `CLOD_UI_WARM_IDLE_MS`     | How long a conversation's CLI process waits for its next turn (default 1h); `0` = one per turn.  |
+| `CLOD_UI_WARM_MAX`         | Most CLI processes kept warm at once (default 4); the least recently used idle one goes first.   |
+| `CLOD_UI_ALLOWED_ORIGINS`  | Extra origins (comma-separated) the same-origin guard accepts, e.g. a Vite dev server.           |
+| `CLOD_UI_SWEEPER`          | Attachment sweeper: unset = off, `delete` = really unlink, anything else = dry run.              |
+
+The engine binds `127.0.0.1` only. To reach it from other devices, put a
+proxy in front that keeps the `Host` header (Tailscale Serve does). Writes and
+WebSocket handshakes from another origin get a 403.
+
+## Dev loops
 
 ```sh
-bun run --filter '@clod-ui/engine' dev    # Bun + Hono engine, hot reload
-bun run --filter '@clod-ui/web' dev       # Vite dev server
-```
-
-The engine binds `127.0.0.1`, takes a port from `CLOD_UI_ENGINE_PORT` and an
-app-data root from `CLOD_UI_APP_DATA_DIR`, and logs the port it chose. The web
-app talks to whatever `VITE_ENGINE_URL` points at, defaulting to its own origin.
-See [`.env.example`](./.env.example) for the complete list; none of them are
-secrets.
-
-Other commands that work:
-
-```sh
-bun test --path-ignore-patterns='apps/web/tests/dom/**'   # or: bun run test:fast
-bun run web:test          # the jsdom half, under Vitest
-bun run lint typecheck format:check
-bun run tape:record -- --name <slug> --prompt-file <path>
+bun run --filter '@clod-ui/engine' dev    # engine with hot reload
+bun run --filter '@clod-ui/web' dev       # web UI (Vite dev server)
+bun run test:fast                         # single `bun test` run
+bun run web:test                          # the DOM tests, under Vitest
+bun run ci:deep                           # ci:fast + Playwright against a real engine
+bun run tape:record -- --name <slug> --prompt-file <path>   # capture a CLI tape fixture
 ```
 
 `tape:record` spawns the real CLI and writes everything it said into
@@ -119,20 +102,40 @@ it.
 Git hooks (via [`lefthook.yml`](./lefthook.yml)): pre-commit runs
 `lint:staged` + `typecheck`, pre-push runs `ci:fast`. `LEFTHOOK=0` bypasses.
 
+## The event log
+
+[`packages/manifest`](./packages/manifest) is an append-only NDJSON log, one
+file per conversation at
+`<app-data>/conversations/<conv-id>/manifest.json`. Each line is a
+`ManifestEvent` carrying `seq`, `ts`, `hash_self` and `hash_prev` over a
+canonical JSON encoding, so tampering with an earlier line is detectable.
+Projected state is a pure fold over the log; nothing rewrites an earlier line.
+A SQLite index (`engine.sqlite`) sits alongside it for list queries. The log is
+authoritative; the index is derived.
+
+Separately, [`packages/transcripts`](./packages/transcripts) tails Claude Code's
+own JSONL session files under `<CLAUDE_HOME>/projects/<encoded-cwd>/` and
+normalizes them into typed chat messages. That is the CLI's record, not ours.
+
 ## Layout
 
 ```
 apps/
-  engine/      Bun + Hono server: routes, SQLite index, manifest store,
-               transcript watcher, auto-titling.
-  web/         Vite + React + Tailwind + shadcn/ui. Sidebar, Composer,
-               streaming TurnView, TranscriptHistory.
-  launcher/    Stub. Logs one line and exits 0.
+  engine/      Bun + Hono server: health, conversations, turns, cancel, transcript,
+               settings, skills, diagnostics, attachments, static SPA, /ws.
+               SQLite index + append-only manifest + transcript watcher +
+               auto-titling + same-origin guard.
+  web/         Vite + React + Tailwind + shadcn/ui: sidebar, history, streaming
+               turn view, composer with controls and attachments, panels.
+  launcher/    One-command start: builds the web dist if missing, spawns the
+               engine, polls /health, opens the browser, restarts a crashed
+               engine once, forwards SIGINT/SIGTERM.
 
 packages/
-  contracts/   Wire schemas + typed client.
-  backend/     `ClaudeBackend` interface. Real = `claude` subprocess;
-               Tape = replay a recording; Scripted and Chaos live in test-kit.
+  contracts/   Zod schemas + typed client for engine ↔ web (single source of truth).
+  backend/     `ClaudeBackend` interface. Real = `claude` subprocesses (warm per
+               conversation); Tape = replay a recording; Scripted and Chaos live
+               in test-kit.
   manifest/    The append-only event log (above).
   settings/    Atomic temp+rename writes with .bak rotation; unknown Claude
                Code settings keys survive a round-trip byte-for-byte.
@@ -140,26 +143,21 @@ packages/
   test-kit/    TestEnv, FakeClock, ScriptedBackend, TapeBackend, ChaosBackend,
                MockEngineServer, typed test client, assertions, tape recorder.
 
-tests/spine/   The spine assertions (T1.01–T1.15), catalogued in docs/SPINE.md.
+tests/
+  spine/       The spine contracts (T1.01–T1.20), catalogued in docs/SPINE.md.
+  e2e/         Playwright deep tier.
+  fixtures/cli-tapes/   Captured CLI tapes.
 ```
-
-[`packages/contracts`](./packages/contracts) is the single source of truth for
-everything that crosses engine ↔ web: Zod schemas plus the TS types derived from
-them. Engine surface: `GET /health`, `GET|POST /conversations`,
-`POST /conversations/:id/turns`, `POST /conversations/:id/cancel`,
-`GET /conversations/:id/transcript`, `GET|PUT /settings`, and a WebSocket
-upgrade at `/ws` that accepts `?since=<lastEventId>` to replay the gap after a
-reconnect.
 
 ## Design docs
 
-- [`plans/INDEX.md`](./plans/INDEX.md) — index of every plan
-- [`plans/2026-04-23-clod-ui-architecture-v2.md`](./plans/2026-04-23-clod-ui-architecture-v2.md) — architecture
-- [`plans/2026-04-23-clod-ui-test-strategy-v1.md`](./plans/2026-04-23-clod-ui-test-strategy-v1.md) — test layers L0–L8
-- [`docs/INVARIANTS.md`](./docs/INVARIANTS.md) — the nine contracts (I-1…I-9) that hardened across PRs
-- [`docs/SPINE.md`](./docs/SPINE.md) — what each spine test pins down
-- [`plans/landed/`](./plans/landed/) — one design doc per landed PR
-- [`docs/archive/`](./docs/archive/) — superseded v1 plans. History, not spec.
+- [`plans/INDEX.md`](./plans/INDEX.md): index of every plan
+- [`plans/2026-06-10-clod-ui-architecture-v3.md`](./plans/2026-06-10-clod-ui-architecture-v3.md): architecture (v3, with a v2 → v3 drift ledger)
+- [`plans/2026-04-23-clod-ui-test-strategy-v1.md`](./plans/2026-04-23-clod-ui-test-strategy-v1.md): test layers L0–L8
+- [`docs/INVARIANTS.md`](./docs/INVARIANTS.md): the nine contracts (I-1…I-9) that hardened across PRs
+- [`docs/SPINE.md`](./docs/SPINE.md): what each spine test pins down
+- [`plans/landed/`](./plans/landed/): one design doc per landed PR
+- [`docs/archive/`](./docs/archive/): superseded v1 plans. History, not spec.
 
 Plans are written before the code and describe intent at the time. Where a plan
 and the code disagree, the code is what exists.

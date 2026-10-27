@@ -6,7 +6,7 @@
  * (docs/INVARIANTS.md I-2). Also covers the `refetch()` "no flash to loading"
  * contract and the `enabled: false` opt-out.
  *
- * Spec: plans/2026-05-06-clod-ui-pr20b-transcript-history-v1.md §3.
+ * Spec: plans/landed/2026-05-06-clod-ui-pr20b-transcript-history-v1.md §3.
  */
 import type { TranscriptResponse } from '@clod-ui/contracts';
 import { ClientError, type Client } from '@clod-ui/contracts/client';
@@ -87,6 +87,26 @@ describe('useTranscript — async lifecycle', () => {
       expect(result.current.state.status).toBe('not_configured');
     });
     expect(result.current.state).toEqual({ status: 'not_configured' });
+  });
+
+  test('a 404 for a not-yet-provisioned conversation is empty history, not an error', async () => {
+    const err = new ClientError({
+      kind: 'http',
+      message: 'GET /conversations/A/transcript returned 404',
+      status: 404,
+      path: '/conversations/A/transcript',
+    });
+    const client = makeFakeClient({
+      getTranscript: vi.fn().mockRejectedValue(err),
+    });
+    const { result } = renderHook(() => useTranscript({ conv_id: 'A' }), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => {
+      expect(result.current.state.status).toBe('ok');
+    });
+    if (result.current.state.status !== 'ok') throw new Error('unreachable');
+    expect(result.current.state.messages).toEqual([]);
   });
 
   test('resolves to error on a generic ClientError', async () => {

@@ -1,5 +1,7 @@
 # Clod UI — Architecture & Implementation Plan (v2)
 
+> **Superseded by [`plans/2026-06-10-clod-ui-architecture-v3.md`](../../plans/2026-06-10-clod-ui-architecture-v3.md)** (2026-06-10, PR #23). Kept for history; do not use for decisions. The v3 drift ledger records every correction.
+>
 > **Status:** This plan supersedes `plans/2026-04-23-clod-ui-initial-architecture-v1.md`. The v1 plan **must be moved to `docs/archive/`** before any other work begins (see Task 0.1). Future agent sessions should read only this v2 and the companion `plans/2026-04-23-clod-ui-test-strategy-v1.md`.
 >
 > **Companion plan:** `plans/2026-04-23-clod-ui-test-strategy-v1.md` defines the test strategy, layered pyramid, spine tests, and fake backends. Every phase below has a corresponding test-plan phase; implementation tasks land **with** their tests, and Phase T1 spine tests are authored **before** the Phase 2 engine code that satisfies them.

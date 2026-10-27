@@ -123,14 +123,32 @@ function runFast(): void {
   run({ name: 'lint', argv: ['bun', 'run', 'lint'] });
   run({ name: 'typecheck', argv: ['bun', 'run', 'typecheck'] });
   run({ name: 'format:check', argv: ['bun', 'run', 'format:check'] });
-  run({ name: 'test', argv: ['bun', 'test', '--path-ignore-patterns=apps/web/tests/dom/**'] });
+  run({
+    name: 'test',
+    argv: [
+      'bun',
+      'test',
+      // dom/** belongs to vitest; e2e/** belongs to playwright (deep tier).
+      '--path-ignore-patterns=apps/web/tests/dom/**',
+      '--path-ignore-patterns=tests/e2e/**',
+    ],
+  });
   run({ name: 'web:test', argv: ['bun', 'run', 'web:test'] });
   linkCheckReadme();
 }
 
 function runDeep(): void {
   runFast();
-  log('TODO: L5 Playwright + L7 chaos + L8 perf land in later PRs. Accepted gap per plan §9.1.');
+  // L5 Playwright (PR #36): build the SPA under test unconditionally —
+  // the launcher's build-if-missing rule is not enough here — then run
+  // the deep spec against a real engine + ChaosBackend (serve-deep.ts).
+  run({ name: 'web:build', argv: ['bun', 'run', '--filter', '@clod-ui/web', 'build'] });
+  run({ name: 'playwright:install', argv: ['bunx', 'playwright', 'install', 'chromium'] });
+  run({
+    name: 'playwright:deep',
+    argv: ['bunx', 'playwright', 'test', '--config', 'tests/e2e/playwright.config.ts'],
+  });
+  log('TODO: L7 chaos + L8 perf remain future tiers. Accepted gap per plan §9.1.');
 }
 
 function runNightly(): void {

@@ -3,7 +3,7 @@
  * `transcript.updated` wire envelope. Mirrors the structural shape produced
  * by `@clod-ui/transcripts`'s `parseTranscriptLine` and `readAllLines`.
  *
- * Spec: plans/2026-05-02-clod-ui-pr20a-transcript-route-v1.md §2.
+ * Spec: plans/landed/2026-05-02-clod-ui-pr20a-transcript-route-v1.md §2.
  */
 import { z } from 'zod';
 

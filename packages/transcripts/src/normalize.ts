@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   ContentBlock,
+  ImageBlock,
   ThinkingBlock,
   ToolResultBlock,
   ToolUseBlock,
@@ -126,6 +127,8 @@ function toBlock(raw: unknown): ContentBlock | null {
       return toTextBlock(b);
     case 'thinking':
       return toThinkingBlock(b);
+    case 'image':
+      return toImageBlock(b);
     case 'tool_use':
       return toToolUseBlock(b);
     case 'tool_result':
@@ -153,6 +156,23 @@ function toThinkingBlock(b: Record<string, unknown>): ThinkingBlock | null {
     text: rawText,
     ...(typeof sig === 'string' ? { signature: sig } : {}),
   };
+}
+
+/**
+ * User-sent image (PR #34): the JSONL carries the API-standard
+ * `{type:'image',source:{type:'base64',media_type,data}}` we send via
+ * stdin (PR #33 smoke evidence). Other source kinds are skipped —
+ * additive-lenient like every block parser here.
+ */
+function toImageBlock(b: Record<string, unknown>): ImageBlock | null {
+  const source = b['source'];
+  if (source === null || typeof source !== 'object' || Array.isArray(source)) return null;
+  const src = source as Record<string, unknown>;
+  if (src['type'] !== 'base64') return null;
+  const mediaType = src['media_type'];
+  const data = src['data'];
+  if (typeof mediaType !== 'string' || typeof data !== 'string') return null;
+  return { type: 'image', media_type: mediaType, data_base64: data };
 }
 
 function toToolUseBlock(b: Record<string, unknown>): ToolUseBlock | null {

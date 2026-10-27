@@ -172,15 +172,29 @@ describe('parseStreamJsonLine — user tool_results', () => {
 });
 
 describe('parseStreamJsonLine — result', () => {
-  test('subtype=success → turn.result with usage', () => {
+  test('subtype=success → turn.result with usage, cache fields included (PR #39)', () => {
     const line = JSON.stringify({
       type: 'result',
       subtype: 'success',
       session_id: 's',
-      usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 0 },
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 3095,
+        server_tool_use: { web_search_requests: 0 },
+      },
     });
     expect(parseStreamJsonLine(line)).toEqual([
-      { kind: 'turn.result', usage: { input_tokens: 10, output_tokens: 20 } },
+      {
+        kind: 'turn.result',
+        usage: {
+          input_tokens: 10,
+          output_tokens: 20,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 3095,
+        },
+      },
     ]);
   });
 

@@ -28,8 +28,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # No-op today; key is in place so future PRs that enable L5 Playwright
-      # pick up cached browsers without churn.
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
@@ -40,6 +38,9 @@ jobs:
 
       - name: Install
         run: bun install --frozen-lockfile
+
+      - name: Install Playwright chromium
+        run: bunx playwright install chromium --with-deps
 
       - name: ci:deep
         run: bun run ci:deep

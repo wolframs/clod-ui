@@ -1,4 +1,4 @@
-import type { BackendEvent } from './types.ts';
+import type { BackendEvent, TurnUsage } from './types.ts';
 
 /**
  * Parser for `claude -p --output-format stream-json --verbose` NDJSON output.
@@ -77,7 +77,14 @@ function parseSystem(obj: Record<string, unknown>): BackendEventInput[] {
   if (subtype !== 'init') return [];
   const sessionId = obj['session_id'];
   if (typeof sessionId !== 'string') return [];
-  return [{ kind: 'system.init', session_id: sessionId }];
+  // The resolved model id (`--model opus` → `claude-opus-5-5`), so the UI
+  // can show which version an alias or the CLI default actually ran.
+  const model = obj['model'];
+  return [
+    typeof model === 'string' && model !== ''
+      ? { kind: 'system.init', session_id: sessionId, model }
+      : { kind: 'system.init', session_id: sessionId },
+  ];
 }
 
 function parseAssistant(obj: Record<string, unknown>): BackendEventInput[] {
@@ -154,12 +161,21 @@ function parseResult(obj: Record<string, unknown>): BackendEventInput[] {
   ];
 }
 
-function extractUsage(raw: unknown): { input_tokens?: number; output_tokens?: number } | undefined {
+const USAGE_KEYS = [
+  'input_tokens',
+  'output_tokens',
+  'cache_read_input_tokens',
+  'cache_creation_input_tokens',
+] as const satisfies ReadonlyArray<keyof TurnUsage>;
+
+function extractUsage(raw: unknown): TurnUsage | undefined {
   if (raw === null || typeof raw !== 'object') return undefined;
   const u = raw as Record<string, unknown>;
-  const out: { input_tokens?: number; output_tokens?: number } = {};
-  if (typeof u['input_tokens'] === 'number') out.input_tokens = u['input_tokens'];
-  if (typeof u['output_tokens'] === 'number') out.output_tokens = u['output_tokens'];
+  const out: TurnUsage = {};
+  for (const key of USAGE_KEYS) {
+    const v = u[key];
+    if (typeof v === 'number') out[key] = v;
+  }
   return Object.keys(out).length > 0 ? out : undefined;
 }
 

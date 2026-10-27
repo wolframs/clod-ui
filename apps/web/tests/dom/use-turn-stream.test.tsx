@@ -81,7 +81,23 @@ describe('useTurnStream — initial state', () => {
     const { result } = renderHook(() => useTurnStream({ conv_id: CONV_A }), {
       wrapper: makeWrapper(client),
     });
-    expect(result.current).toEqual({ status: 'idle' });
+    expect(result.current.turn).toEqual({ status: 'idle' });
+  });
+
+  test('exposes the underlying connection state (PR #22 banner contract)', async () => {
+    const { client, ctrl } = makeFakeClient();
+    const { result } = renderHook(() => useTurnStream({ conv_id: CONV_A }), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(ctrl.handlers).not.toBeNull());
+    expect(result.current.connection.status).toBe('connecting');
+
+    ctrl.fireOpen();
+    await waitFor(() => expect(result.current.connection.status).toBe('open'));
+
+    // Non-clean close (engine died) → transport retries → 'reconnecting'.
+    ctrl.handlers?.onClose?.({ code: 1006, reason: 'engine died' });
+    await waitFor(() => expect(result.current.connection.status).toBe('reconnecting'));
   });
 
   test('enabled: false suppresses subscription and stays idle even when envelopes would match', () => {
@@ -90,7 +106,7 @@ describe('useTurnStream — initial state', () => {
       wrapper: makeWrapper(client),
     });
     expect(ctrl.subscribeCalls).toBe(0);
-    expect(result.current).toEqual({ status: 'idle' });
+    expect(result.current.turn).toEqual({ status: 'idle' });
   });
 });
 
@@ -104,11 +120,11 @@ describe('useTurnStream — conv_id filter', () => {
 
     // Wrong conv_id — must NOT establish a turn.
     ctrl.fireEnvelope(env('system.init', { turn_id: TURN }, CONV_B));
-    expect(result.current).toEqual({ status: 'idle' });
+    expect(result.current.turn).toEqual({ status: 'idle' });
 
     // Right conv_id — DOES establish a turn.
     ctrl.fireEnvelope(env('system.init', { turn_id: TURN }, CONV_A));
-    await waitFor(() => expect(result.current.status).toBe('streaming'));
+    await waitFor(() => expect(result.current.turn.status).toBe('streaming'));
   });
 });
 
@@ -125,7 +141,7 @@ describe('useTurnStream — lifecycle integration', () => {
     ctrl.fireEnvelope(env('assistant.delta', { turn_id: TURN, text: 'world!' }));
 
     await waitFor(() => {
-      const s = result.current;
+      const s = result.current.turn;
       if (s.status !== 'streaming') throw new Error('not streaming yet');
       expect(s.assistant_text).toBe('Hello, world!');
     });
@@ -145,7 +161,7 @@ describe('useTurnStream — lifecycle integration', () => {
     );
 
     await waitFor(() => {
-      const s = result.current;
+      const s = result.current.turn;
       if (s.status !== 'completed') throw new Error(`expected completed, got ${s.status}`);
       expect(s.assistant_text).toBe('done');
       expect(s.usage).toEqual({ input_tokens: 5, output_tokens: 8 });
@@ -164,7 +180,7 @@ describe('useTurnStream — lifecycle integration', () => {
     ctrl.fireEnvelope(env('turn.cancelled', { turn_id: TURN, escalation: 'sigterm' }));
 
     await waitFor(() => {
-      const s = result.current;
+      const s = result.current.turn;
       if (s.status !== 'cancelled') throw new Error(`expected cancelled, got ${s.status}`);
       expect(s.assistant_text).toBe('partial');
       expect(s.escalation).toBe('sigterm');
@@ -183,7 +199,7 @@ describe('useTurnStream — lifecycle integration', () => {
     ctrl.fireEnvelope(env('turn.error', { turn_id: TURN, error }));
 
     await waitFor(() => {
-      const s = result.current;
+      const s = result.current.turn;
       if (s.status !== 'errored') throw new Error(`expected errored, got ${s.status}`);
       expect(s.error).toEqual(error);
     });
@@ -203,13 +219,36 @@ describe('useTurnStream — conv_id change reset', () => {
     ctrl.fireEnvelope(env('system.init', { turn_id: TURN }, CONV_A));
     ctrl.fireEnvelope(env('assistant.delta', { turn_id: TURN, text: 'A-text' }, CONV_A));
     await waitFor(() => {
-      const s = result.current;
+      const s = result.current.turn;
       if (s.status !== 'streaming') throw new Error('not streaming');
       expect(s.assistant_text).toBe('A-text');
     });
 
     // Switch to CONV_B — state must reset without observing CONV_A's text.
     rerender({ conv_id: CONV_B });
-    expect(result.current).toEqual({ status: 'idle' });
+    expect(result.current.turn).toEqual({ status: 'idle' });
+  });
+
+  test("switching A → B → A comes back to A's live turn, which kept streaming meanwhile", async () => {
+    const { client, ctrl } = makeFakeClient();
+    const { result, rerender } = renderHook(({ conv_id }) => useTurnStream({ conv_id }), {
+      initialProps: { conv_id: CONV_A },
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(ctrl.handlers).not.toBeNull());
+    ctrl.fireEnvelope(env('system.init', { turn_id: TURN }, CONV_A));
+
+    rerender({ conv_id: CONV_B });
+    ctrl.fireEnvelope(env('assistant.delta', { turn_id: TURN, text: 'while away' }, CONV_A));
+    ctrl.fireEnvelope(env('turn.result', { turn_id: TURN }, CONV_A));
+    expect(result.current.turn).toEqual({ status: 'idle' });
+
+    rerender({ conv_id: CONV_A });
+    await waitFor(() => {
+      const s = result.current.turn;
+      if (s.status !== 'completed') throw new Error(`status ${s.status}`);
+      expect(s.assistant_text).toBe('while away');
+    });
+    expect(ctrl.subscribeCalls).toBe(1);
   });
 });

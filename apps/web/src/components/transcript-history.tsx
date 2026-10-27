@@ -4,9 +4,9 @@
  * persisted history; the active turn (`<TurnView />`) renders separately
  * below it.
  *
- * No state, no effects, no event handlers. Pure function from
- * `TranscriptState` to JSX. Markdown rendering, tool-card collapsibles,
- * and scroll-to-bottom land in PR #18d (named TODOs below).
+ * Presentational with one interactive concession: ToolUseBlockView owns a
+ * single `useState` for its collapse toggle (PR #18d.3, Invariant I-4 —
+ * state enters only when interactivity forces it).
  *
  * The `ChatMessage` shape comes from `@clod-ui/contracts/chat-message` and
  * carries content blocks discriminated on `type`. We render each block via
@@ -14,17 +14,20 @@
  * matching tool_use parent at render time (purely visual, no data
  * transformation — keeps the data shape stable for other consumers).
  *
- * Spec: plans/2026-05-06-clod-ui-pr20b-transcript-history-v1.md §4.
+ * Spec: plans/landed/2026-05-06-clod-ui-pr20b-transcript-history-v1.md §4.
  */
 import type {
   ChatMessage,
   ContentBlock,
+  ImageBlock,
   TextBlock,
   ThinkingBlock,
   ToolResultBlock,
   ToolUseBlock,
 } from '@clod-ui/contracts';
+import { useState } from 'react';
 
+import { Markdown } from '@/components/markdown';
 import type { TranscriptState } from '@/lib/use-transcript';
 import { cn } from '@/lib/utils';
 
@@ -132,20 +135,29 @@ export function TranscriptHistory({ state, className }: TranscriptHistoryProps):
 
   return (
     <ol
-      // TODO(scroll-to-bottom): sticky-bottom auto-scroll while at bottom,
-      // freeze when user scrolls up, in PR #18d.
-      className={cn('flex h-full w-full flex-col gap-3 overflow-y-auto p-6', className)}
+      // Scroll-agnostic since PR #18d.1: the single scroll container lives in
+      // App.tsx (useStickyBottom drives it); this list renders at natural height.
+      className={cn('flex w-full flex-col gap-3 p-6', className)}
       data-test="transcript-history"
       data-state="ok"
       data-message-count={state.messages.length}
     >
-      {state.messages.map((message) => (
+      {state.messages.filter(hasVisibleContent).map((message) => (
         <li key={message.id}>
           <ChatMessageView message={message} />
         </li>
       ))}
     </ol>
   );
+}
+
+/**
+ * Newer CLIs write the model's thinking as a block with empty text and only a
+ * signature. A message made only of those has nothing to show; it stays in
+ * the data and leaves the view.
+ */
+function hasVisibleContent(message: ChatMessage): boolean {
+  return message.content.some((b) => b.type !== 'thinking' || b.text.trim() !== '');
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +196,7 @@ export function ChatMessageView({ message }: ChatMessageViewProps): JSX.Element 
       data-message-id={message.id}
     >
       <header className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <span>{message.role}</span>
+        <span>{message.role === 'user' ? 'Human' : 'Claude'}</span>
         <span className="font-mono opacity-60" title="line / byte offset in JSONL">
           L{message.source.line_number} · B{message.source.byte_offset}
         </span>
@@ -223,6 +235,8 @@ function ContentBlockView({
       return <TextBlockView block={block} />;
     case 'thinking':
       return <ThinkingBlockView block={block} />;
+    case 'image':
+      return <ImageBlockView block={block} />;
     case 'tool_use': {
       const result = toolResultsById.get(block.tool_use_id);
       return (
@@ -248,18 +262,28 @@ function ContentBlockView({
 // TextBlockView
 // ---------------------------------------------------------------------------
 
-function TextBlockView({ block }: { block: TextBlock }): JSX.Element {
-  // TODO(markdown-renderer): swap <pre> for react-markdown + GFM in PR #18d.
-  // Until then, whitespace-pre-wrap preserves formatting verbatim — readable
-  // for code, prose, and lists.
+/**
+ * User-sent image (PR #34): renders the base64 payload carried by the
+ * transcript directly as a data URI — no fetch, no serving round-trip.
+ */
+function ImageBlockView({ block }: { block: ImageBlock }): JSX.Element {
   return (
-    <pre
-      className="whitespace-pre-wrap break-words font-sans text-foreground"
-      data-test="content-block"
-      data-block-type="text"
-    >
-      {block.text}
-    </pre>
+    <img
+      data-test="image-block"
+      data-media-type={block.media_type}
+      src={`data:${block.media_type};base64,${block.data_base64}`}
+      alt="attachment"
+      className="max-h-64 max-w-full rounded-md border border-border object-contain"
+    />
+  );
+}
+
+function TextBlockView({ block }: { block: TextBlock }): JSX.Element {
+  // Markdown since PR #18d.2 (both roles — users paste markdown too).
+  return (
+    <div data-test="content-block" data-block-type="text">
+      <Markdown text={block.text} />
+    </div>
   );
 }
 
@@ -267,7 +291,8 @@ function TextBlockView({ block }: { block: TextBlock }): JSX.Element {
 // ThinkingBlockView
 // ---------------------------------------------------------------------------
 
-function ThinkingBlockView({ block }: { block: ThinkingBlock }): JSX.Element {
+function ThinkingBlockView({ block }: { block: ThinkingBlock }): JSX.Element | null {
+  if (block.text.trim() === '') return null;
   return (
     <article
       className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-xs italic text-muted-foreground"
@@ -294,6 +319,9 @@ interface ToolUseBlockViewProps {
 }
 
 function ToolUseBlockView({ block, result }: ToolUseBlockViewProps): JSX.Element {
+  // Collapsible since PR #18d.3: collapsed by default, error results start
+  // expanded (plan §2.2). Collapse is `hidden`, not unmount (plan §2.1).
+  const [collapsed, setCollapsed] = useState<boolean>(!(result?.is_error ?? false));
   return (
     <article
       className="rounded-md border border-border bg-card text-xs"
@@ -302,9 +330,24 @@ function ToolUseBlockView({ block, result }: ToolUseBlockViewProps): JSX.Element
       data-tool-id={block.tool_use_id}
       data-tool-name={block.name}
       data-has-result={result !== undefined ? 'true' : 'false'}
+      data-collapsed={collapsed ? 'true' : 'false'}
     >
-      <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <span className="font-mono font-semibold text-foreground">{block.name}</span>
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        aria-expanded={!collapsed}
+        className={cn(
+          'flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/30',
+          collapsed ? '' : 'border-b border-border',
+        )}
+        data-test="tool-card-toggle"
+      >
+        <span className="flex items-center gap-1.5 font-mono font-semibold text-foreground">
+          <span aria-hidden="true" className="inline-block w-3 text-muted-foreground">
+            {collapsed ? '\u25b8' : '\u25be'}
+          </span>
+          {block.name}
+        </span>
         {result === undefined ? (
           <span className="font-mono text-[10px] text-muted-foreground">no result</span>
         ) : result.is_error ? (
@@ -312,8 +355,8 @@ function ToolUseBlockView({ block, result }: ToolUseBlockViewProps): JSX.Element
         ) : (
           <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400">ok</span>
         )}
-      </header>
-      <div className="flex flex-col gap-2 p-3">
+      </button>
+      <div className="flex flex-col gap-2 p-3" hidden={collapsed}>
         <section>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Input

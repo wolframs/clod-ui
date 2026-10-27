@@ -21,7 +21,12 @@ export type ConversationsState =
   | { status: 'error'; error: ClientError }
   | { status: 'not_configured' };
 
-export function useConversations(): ConversationsState {
+/**
+ * `refreshKey`: change it to refetch the list (a new conversation, a new
+ * title). A refetch keeps the current list on screen until the new one
+ * lands; only the first load shows `loading`.
+ */
+export function useConversations(refreshKey: number = 0): ConversationsState {
   const { client } = useEngine();
   const [state, setState] = useState<ConversationsState>({ status: 'loading' });
 
@@ -48,7 +53,7 @@ export function useConversations(): ConversationsState {
       cancelled = true;
       controller.abort();
     };
-  }, [client]);
+  }, [client, refreshKey]);
 
   return state;
 }

@@ -12,7 +12,7 @@
  *      engine was constructed without the `transcripts` option (the opt-in
  *      404 contract from INVARIANTS I-1).
  *
- * Implementation: PR #20a (plans/2026-05-02-clod-ui-pr20a-transcript-route-v1.md).
+ * Implementation: PR #20a (plans/landed/2026-05-02-clod-ui-pr20a-transcript-route-v1.md).
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

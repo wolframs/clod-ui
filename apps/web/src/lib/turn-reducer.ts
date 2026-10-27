@@ -25,17 +25,31 @@ export type ActiveTurn = {
   status: 'streaming' | 'completed' | 'cancelled' | 'errored';
   turn_id: string;
   session_id?: string;
+  /** Resolved model id from `system.init` (e.g. `claude-opus-5-5`), when the CLI reports it. */
+  model?: string;
   assistant_text: string;
   assistant_complete: boolean;
   thinking_text: string;
   thinking_complete: boolean;
   tools: ToolCall[];
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: TurnUsage;
   /** Present iff status === 'cancelled'. */
   escalation?: 'sigint' | 'sigterm' | 'sigkill';
   /** Present iff status === 'errored'. */
   error?: ClodError;
 };
+
+/**
+ * A turn's token usage from the CLI `result` (wire payload of `turn.result`).
+ * `input_tokens` is only the uncached part; the cache fields (PR #39) carry
+ * the rest of the prompt.
+ */
+export interface TurnUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
 
 export type TurnState = { status: 'idle' } | ActiveTurn;
 
@@ -46,11 +60,12 @@ export const INITIAL_TURN_STATE: TurnState = { status: 'idle' };
  *
  * Exported for tests; consumers reach for `turnReducer` instead.
  */
-function newActiveTurn(turn_id: string, session_id?: string): ActiveTurn {
+function newActiveTurn(turn_id: string, session_id?: string, model?: string): ActiveTurn {
   return {
     status: 'streaming',
     turn_id,
     ...(session_id !== undefined ? { session_id } : {}),
+    ...(model !== undefined ? { model } : {}),
     assistant_text: '',
     assistant_complete: false,
     thinking_text: '',
@@ -80,9 +95,13 @@ export function turnReducer(prev: TurnState, env: EventEnvelope): TurnState {
 
   switch (env.kind) {
     case 'system.init': {
-      const p = env.payload as { turn_id?: unknown; session_id?: unknown };
+      const p = env.payload as { turn_id?: unknown; session_id?: unknown; model?: unknown };
       if (typeof p?.turn_id !== 'string') return prev;
-      return newActiveTurn(p.turn_id, typeof p.session_id === 'string' ? p.session_id : undefined);
+      return newActiveTurn(
+        p.turn_id,
+        typeof p.session_id === 'string' ? p.session_id : undefined,
+        typeof p.model === 'string' ? p.model : undefined,
+      );
     }
 
     case 'assistant.delta': {
@@ -172,37 +191,60 @@ export function turnReducer(prev: TurnState, env: EventEnvelope): TurnState {
       if (prev.status === 'idle') return prev;
       const p = env.payload as {
         turn_id?: unknown;
-        usage?: { input_tokens?: number; output_tokens?: number };
+        usage?: TurnUsage;
       };
       if (typeof p?.turn_id === 'string' && p.turn_id !== prev.turn_id) return prev;
+      // A terminator ends the text and thinking streams too: the real
+      // backend never emits *.complete, and a finished turn must not keep a
+      // streaming cursor.
       return {
         ...prev,
+        assistant_complete: true,
+        thinking_complete: true,
         status: 'completed',
         ...(p?.usage !== undefined ? { usage: p.usage } : {}),
       };
     }
 
     case 'turn.cancelled': {
-      if (prev.status === 'idle') return prev;
       const p = env.payload as { turn_id?: unknown; escalation?: unknown };
-      if (typeof p?.turn_id === 'string' && p.turn_id !== prev.turn_id) return prev;
+      // A turn can end before `system.init` (cancelled during startup): it
+      // still gets a projection, or the user sees nothing at all.
+      if (
+        prev.status === 'idle' ||
+        (typeof p?.turn_id === 'string' && p.turn_id !== prev.turn_id)
+      ) {
+        if (typeof p?.turn_id !== 'string') return prev;
+        prev = newActiveTurn(p.turn_id);
+      }
       const escalation =
         p?.escalation === 'sigint' || p?.escalation === 'sigterm' || p?.escalation === 'sigkill'
           ? p.escalation
           : undefined;
       return {
         ...prev,
+        assistant_complete: true,
+        thinking_complete: true,
         status: 'cancelled',
         ...(escalation !== undefined ? { escalation } : {}),
       };
     }
 
     case 'turn.error': {
-      if (prev.status === 'idle') return prev;
       const p = env.payload as { turn_id?: unknown; error?: ClodError };
-      if (typeof p?.turn_id === 'string' && p.turn_id !== prev.turn_id) return prev;
+      // Failures before `system.init` (CLI missing, spawn failed) carry a
+      // new turn_id and no init: project them as their own errored turn.
+      if (
+        prev.status === 'idle' ||
+        (typeof p?.turn_id === 'string' && p.turn_id !== prev.turn_id)
+      ) {
+        if (typeof p?.turn_id !== 'string') return prev;
+        prev = newActiveTurn(p.turn_id);
+      }
       return {
         ...prev,
+        assistant_complete: true,
+        thinking_complete: true,
         status: 'errored',
         ...(p?.error !== undefined ? { error: p.error } : {}),
       };

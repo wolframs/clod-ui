@@ -32,6 +32,17 @@ export const ToolUseBlockSchema = z.object({
   input: z.unknown(),
 });
 
+/**
+ * Image sent by the user (PR #34). Carries the base64 payload straight
+ * from the transcript JSONL (what `encodeStdin` emits, pinned by the
+ * PR #33 real-CLI smoke) — renderable as a data URI without a fetch.
+ */
+export const ImageBlockSchema = z.object({
+  type: z.literal('image'),
+  media_type: z.string(),
+  data_base64: z.string(),
+});
+
 export const ToolResultBlockSchema = z.object({
   type: z.literal('tool_result'),
   tool_use_id: z.string(),
@@ -52,6 +63,7 @@ export const ToolResultBlockSchema = z.object({
 export const ContentBlockSchema = z.discriminatedUnion('type', [
   TextBlockSchema,
   ThinkingBlockSchema,
+  ImageBlockSchema,
   ToolUseBlockSchema,
   ToolResultBlockSchema,
 ]);
@@ -59,6 +71,7 @@ export const ContentBlockSchema = z.discriminatedUnion('type', [
 export type ContentBlock = z.infer<typeof ContentBlockSchema>;
 export type TextBlock = z.infer<typeof TextBlockSchema>;
 export type ThinkingBlock = z.infer<typeof ThinkingBlockSchema>;
+export type ImageBlock = z.infer<typeof ImageBlockSchema>;
 export type ToolUseBlock = z.infer<typeof ToolUseBlockSchema>;
 export type ToolResultBlock = z.infer<typeof ToolResultBlockSchema>;
 

@@ -75,7 +75,10 @@ describe('RealClaudeBackend.health', () => {
       stdout: '2.1.118 (Claude Code)\n',
       exitCode: 0,
     });
-    const be = new RealClaudeBackend({ claudeBinary: shim });
+    // Generous timeout: under full-suite parallel load the shim can take
+    // >3s (the default) to spawn and print, flipping the probe to
+    // 'crashed' — observed flaking ~1/10 runs (PR #28 inspection moment).
+    const be = new RealClaudeBackend({ claudeBinary: shim, probeTimeoutMs: 15_000 });
     try {
       await (be as unknown as { refresh(): Promise<void> }).refresh();
       expect(await be.health()).toEqual({ cli: 'ok', version: '2.1.118' });
@@ -267,6 +270,66 @@ describe('RealClaudeBackend.startTurn (via shim)', () => {
         turn_id: 'turn-abc',
         usage: { input_tokens: 3, output_tokens: 2 },
       });
+    } finally {
+      await be.stop();
+    }
+  });
+
+  test('text blocks from separate assistant messages are joined by a blank line', async () => {
+    const assistant = (text: string): string =>
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text }] },
+      });
+    const shim = writeTurnShim(shimDir, {
+      stdoutLines: [
+        JSON.stringify({
+          type: 'system',
+          subtype: 'init',
+          session_id: 'sess-1',
+          model: 'claude-x-1',
+        }),
+        assistant('First the code.'),
+        assistant(''),
+        assistant('Now the tests.'),
+        JSON.stringify({ type: 'result', subtype: 'success' }),
+      ],
+    });
+    const be = new RealClaudeBackend({ claudeBinary: shim });
+    try {
+      await (be as unknown as { refresh(): Promise<void> }).refresh();
+      const events = await collect(be.startTurn(req));
+      const init = events.find((e) => e.kind === 'system.init');
+      expect(init).toMatchObject({ kind: 'system.init', model: 'claude-x-1' });
+      const text = events.flatMap((e) => (e.kind === 'assistant.delta' ? [e.text] : [])).join('');
+      expect(text).toBe('First the code.\n\nNow the tests.');
+    } finally {
+      await be.stop();
+    }
+  });
+
+  test('an error result keeps the CLI stdout text when stderr is empty', async () => {
+    const shim = writeTurnShim(shimDir, {
+      stdoutLines: [
+        JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-1' }),
+        JSON.stringify({
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          result: 'Something specific went wrong',
+        }),
+      ],
+      exitCode: 1,
+    });
+    const be = new RealClaudeBackend({ claudeBinary: shim });
+    try {
+      await (be as unknown as { refresh(): Promise<void> }).refresh();
+      const events = await collect(be.startTurn(req));
+      const err = events.find((e) => e.kind === 'turn.error');
+      expect(err).toBeDefined();
+      if (err?.kind !== 'turn.error') throw new Error('unreachable');
+      expect(err.error.kind).toBe('cli_crashed');
+      expect(err.error.detail).toBe('Something specific went wrong');
     } finally {
       await be.stop();
     }

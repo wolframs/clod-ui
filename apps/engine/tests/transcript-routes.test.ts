@@ -14,7 +14,7 @@
  *   - 200 + parse_error preserved per line
  *   - 200 + with_raw=false strips raw text
  *
- * Spec: plans/2026-05-02-clod-ui-pr20a-transcript-route-v1.md §6.
+ * Spec: plans/landed/2026-05-02-clod-ui-pr20a-transcript-route-v1.md §6.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

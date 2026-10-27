@@ -472,6 +472,16 @@ describe('extractBlocks', () => {
     if (block?.type !== 'tool_use') throw new Error('unreachable');
     expect(block.tool_use_id).toBe('tu-x');
   });
+
+  test('image maps base64 sources and skips other source kinds (PR #34)', () => {
+    const out = extractBlocks([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUJD' } },
+      { type: 'image', source: { type: 'url', url: 'https://x/y.png' } }, // skipped
+      { type: 'image', source: { type: 'base64', media_type: 7, data: 'x' } }, // skipped
+      { type: 'image' }, // skipped
+    ]);
+    expect(out).toEqual([{ type: 'image', media_type: 'image/png', data_base64: 'QUJD' }]);
+  });
 });
 
 // ---- exhaustiveness sanity ----------------------------------------------

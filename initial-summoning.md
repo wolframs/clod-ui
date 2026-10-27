@@ -9,8 +9,9 @@ then `--resume` for an existing session, and whatever the turn sets for
 `--model`, `--effort`, `--system-prompt` / `--append-system-prompt`,
 `--allowedTools` / `--disallowedTools` and `--add-dir`. It spawns that
 detached, writes the user message to stdin as stream-JSON, and parses the NDJSON
-coming back on stdout into typed events. Each turn gets its own process group so
-a cancel can kill the whole tree.
+coming back on stdout into typed events. Each process gets its own process
+group so a cancel can kill the whole tree, and a conversation's process stays
+warm between turns so the CLI boots once per conversation, not once per turn.
 
 `apps/engine` (Bun + Hono) owns conversations, settings and transcripts, and
 re-emits those events over a WebSocket at `/ws`, which accepts

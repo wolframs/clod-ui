@@ -315,3 +315,51 @@ describe('turnReducer — control envelopes & unknown kinds', () => {
     expect(after).toBe(s);
   });
 });
+
+describe('turnReducer — model, terminal completion, pre-init failures', () => {
+  test('system.init carries the resolved model id', () => {
+    const s = active(
+      turnReducer(
+        INITIAL_TURN_STATE,
+        env('system.init', { turn_id: TURN, session_id: SESSION, model: 'claude-x-1' }),
+      ),
+    );
+    expect(s.model).toBe('claude-x-1');
+  });
+
+  test('a terminator closes the text and thinking streams (no stuck cursor)', () => {
+    let s: TurnState = turnReducer(INITIAL_TURN_STATE, env('system.init', { turn_id: TURN }));
+    s = turnReducer(s, env('assistant.delta', { turn_id: TURN, text: 'hi' }));
+    for (const kind of ['turn.result', 'turn.cancelled', 'turn.error']) {
+      const done = active(turnReducer(s, env(kind, { turn_id: TURN })));
+      expect(done.assistant_complete).toBe(true);
+      expect(done.thinking_complete).toBe(true);
+    }
+  });
+
+  test('turn.error before any system.init is projected, not dropped', () => {
+    const s = active(
+      turnReducer(
+        INITIAL_TURN_STATE,
+        env('turn.error', { turn_id: TURN, error: { kind: 'cli_missing', retryable: false } }),
+      ),
+    );
+    expect(s.status).toBe('errored');
+    expect(s.turn_id).toBe(TURN);
+  });
+
+  test('turn.error for a new turn replaces the previous finished turn', () => {
+    const OTHER = '44444444-4444-4444-8444-444444444444';
+    let s: TurnState = turnReducer(INITIAL_TURN_STATE, env('system.init', { turn_id: TURN }));
+    s = turnReducer(s, env('turn.result', { turn_id: TURN }));
+    const next = active(
+      turnReducer(
+        s,
+        env('turn.error', { turn_id: OTHER, error: { kind: 'cli_crashed', retryable: true } }),
+      ),
+    );
+    expect(next.turn_id).toBe(OTHER);
+    expect(next.status).toBe('errored');
+    expect(next.assistant_text).toBe('');
+  });
+});

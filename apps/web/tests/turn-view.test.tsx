@@ -18,6 +18,7 @@ import {
   TurnStatusPill,
   TurnView,
   UsageBadge,
+  cacheHitPercent,
 } from '../src/components/turn-view.tsx';
 import { INITIAL_TURN_STATE, type ToolCall } from '../src/lib/turn-reducer.ts';
 
@@ -296,5 +297,38 @@ describe('UsageBadge', () => {
     expect(html).toContain('data-test="usage-badge"');
     // Single em-dash placeholder (not the directional ones).
     expect(html).toContain('>—<');
+  });
+
+  test('cache fields (PR #39): hit share, read and written, compact counts', () => {
+    // Turn 2 of a real session: everything before it read back.
+    const html = renderToString(
+      <UsageBadge
+        usage={{
+          input_tokens: 2,
+          output_tokens: 412,
+          cache_read_input_tokens: 57141,
+          cache_creation_input_tokens: 3095,
+        }}
+      />,
+    );
+    expect(html).toContain('data-test="usage-cache"');
+    expect(html).toContain('cache 94% · 57.1k read · 3.1k written');
+    expect(html).toContain('↑ 2');
+  });
+
+  test('no cache fields: no cache segment', () => {
+    const html = renderToString(<UsageBadge usage={{ input_tokens: 100, output_tokens: 250 }} />);
+    expect(html).not.toContain('data-test="usage-cache"');
+  });
+});
+
+describe('cacheHitPercent', () => {
+  test('floors read / (read + written + uncached input)', () => {
+    expect(cacheHitPercent({ input_tokens: 2, cache_read_input_tokens: 98 })).toBe(98);
+    expect(cacheHitPercent({ cache_creation_input_tokens: 56021, input_tokens: 2 })).toBe(0);
+    expect(cacheHitPercent({ input_tokens: 5 })).toBeUndefined();
+    expect(
+      cacheHitPercent({ cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }),
+    ).toBeUndefined();
   });
 });

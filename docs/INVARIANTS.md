@@ -244,5 +244,5 @@ with shapes the actual code doesn't carry). The on-disk file is
 **always** canonical. When a session summary disagrees with the
 file, trust the file.
 
-`docs/SPINE.md` is the authoritative catalog of the 22 spine
-contracts.
+`docs/SPINE.md` is the authoritative catalog of the spine contracts
+(its total row carries the current count).

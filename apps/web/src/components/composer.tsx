@@ -19,6 +19,7 @@
 import * as React from 'react';
 
 import type { TurnState } from '../lib/turn-reducer.ts';
+import type { UploadedAttachment } from '../lib/use-attachment-uploads.ts';
 import type { SubmitTurnState } from '../lib/use-submit-turn.ts';
 import { cn } from '../lib/utils.ts';
 
@@ -38,6 +39,22 @@ export interface ComposerProps {
   onCancel: (turnId: string) => void;
   /** Optional click handler for the error block's "Dismiss" affordance. */
   onResetError?: () => void;
+  /**
+   * Optional controls slot rendered above the textarea (PR #24). The
+   * Composer stays agnostic of what the controls are — App composes
+   * `<TurnControlsBar />` in.
+   */
+  controls?: React.ReactNode;
+  /**
+   * Optional handle on the textarea so App-level features (the `/`
+   * keyboard shortcut, PR #27) can focus it. Internal behavior is
+   * unchanged when absent.
+   */
+  inputRef?: React.RefObject<HTMLTextAreaElement>;
+  /** Pending attachments (PR #34): chips above the textarea. */
+  attachments?: UploadedAttachment[];
+  onAttachFiles?: (files: ArrayLike<File>) => void;
+  onRemoveAttachment?: (name: string) => void;
   className?: string;
 }
 
@@ -50,11 +67,24 @@ export function Composer(props: ComposerProps): React.ReactElement {
     onSubmit,
     onCancel,
     onResetError,
+    controls,
+    inputRef,
+    attachments = [],
+    onAttachFiles,
+    onRemoveAttachment,
     className,
   } = props;
 
   const [text, setText] = React.useState('');
-  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  // A refused submit gives the draft back, unless the user has typed since.
+  const attemptedText = submitState.status === 'error' ? submitState.attempted_text : undefined;
+  React.useEffect(() => {
+    if (attemptedText !== undefined) setText((cur) => (cur === '' ? attemptedText : cur));
+  }, [attemptedText]);
+  const [dragging, setDragging] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const internalRef = React.useRef<HTMLTextAreaElement>(null);
+  const textareaRef = inputRef ?? internalRef;
 
   // Empty-pane variant: no conv selected.
   if (!convId) {
@@ -73,12 +103,18 @@ export function Composer(props: ComposerProps): React.ReactElement {
   }
 
   const trimmed = text.trim();
-  const canSend = trimmed.length > 0 && submitState.status !== 'submitting';
   const isStreaming = turnState.status === 'streaming';
-  // Prefer the live turn_id from useTurnStream; fall back to the most-
-  // recently submitted id so cancel works between submit and system.init.
-  const cancelableTurnId = turnState.status !== 'idle' ? turnState.turn_id : lastSubmittedTurnId;
-  const showCancel = isStreaming && cancelableTurnId !== undefined;
+  // Submitted and accepted, but `system.init` not seen yet: the CLI is
+  // starting. The turn is in flight even though the stream shows nothing
+  // (or still shows the previous, finished turn).
+  const isStarting =
+    lastSubmittedTurnId !== undefined &&
+    (turnState.status === 'idle' || turnState.turn_id !== lastSubmittedTurnId);
+  const turnInFlight = isStreaming || isStarting;
+  // The engine refuses a second turn while one runs (conversation_busy).
+  const canSend = trimmed.length > 0 && submitState.status !== 'submitting' && !turnInFlight;
+  const cancelableTurnId = isStreaming ? turnState.turn_id : lastSubmittedTurnId;
+  const showCancel = turnInFlight && cancelableTurnId !== undefined;
 
   const handleSubmit = (): void => {
     if (!canSend) return;
@@ -104,11 +140,28 @@ export function Composer(props: ComposerProps): React.ReactElement {
     <form
       data-test="composer"
       data-state={submitState.status}
+      data-dragging={dragging ? 'true' : 'false'}
       onSubmit={(ev) => {
         ev.preventDefault();
         handleSubmit();
       }}
-      className={cn('flex flex-col gap-2 border-t border-border bg-card p-3', className)}
+      onDragOver={(ev) => {
+        if (!onAttachFiles) return;
+        ev.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(ev) => {
+        if (!onAttachFiles) return;
+        ev.preventDefault();
+        setDragging(false);
+        if (ev.dataTransfer?.files?.length) onAttachFiles(ev.dataTransfer.files);
+      }}
+      className={cn(
+        'flex flex-col gap-2 border-t border-border bg-card p-3',
+        dragging && 'ring-2 ring-ring',
+        className,
+      )}
     >
       {submitState.status === 'error' && (
         <div
@@ -131,6 +184,39 @@ export function Composer(props: ComposerProps): React.ReactElement {
           )}
         </div>
       )}
+      {controls}
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {attachments.map((att) => (
+            <span
+              key={att.name}
+              data-test="composer-attachment-chip"
+              data-name={att.name}
+              data-status={att.status}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px]',
+                att.status === 'error'
+                  ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                  : 'border-border bg-muted text-foreground',
+                att.status === 'uploading' && 'opacity-60',
+              )}
+            >
+              {`${att.name} · ${att.status === 'error' ? 'failed' : `${att.size} B`}`}
+              {onRemoveAttachment && (
+                <button
+                  data-test="composer-attachment-remove"
+                  type="button"
+                  aria-label={`Remove ${att.name}`}
+                  onClick={() => onRemoveAttachment(att.name)}
+                  className="rounded px-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <textarea
         ref={textareaRef}
         data-test="composer-input"
@@ -143,6 +229,30 @@ export function Composer(props: ComposerProps): React.ReactElement {
         className="min-h-[5rem] resize-none rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
       <div className="flex items-center justify-end gap-2">
+        {onAttachFiles && (
+          <>
+            <input
+              ref={fileInputRef}
+              data-test="composer-file-input"
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(ev) => {
+                if (ev.target.files?.length) onAttachFiles(ev.target.files);
+                ev.target.value = '';
+              }}
+            />
+            <button
+              data-test="composer-attach"
+              type="button"
+              aria-label="Attach files"
+              onClick={() => fileInputRef.current?.click()}
+              className="mr-auto rounded-md border border-input bg-background px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              📎
+            </button>
+          </>
+        )}
         {showCancel && (
           <button
             data-test="composer-cancel"

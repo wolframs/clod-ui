@@ -17,3 +17,6 @@ app-data-dev/
 tmp/
 .bun/
 .vscode/
+
+# Playwright (deep tier, PR #36)
+test-results/

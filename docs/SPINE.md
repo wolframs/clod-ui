@@ -1,6 +1,6 @@
 # Spine catalog
 
-The 26 tests across 15 contract files in [`tests/spine/`](../tests/spine/).
+The 49 tests across 20 contract files in [`tests/spine/`](../tests/spine/).
 Each contract is a _behavior_ the engine must preserve across PR
 churn — the spine gates every commit through `bun run ci:fast`.
 
@@ -31,7 +31,16 @@ and headers are authoritative.
 | T1.14 | [`T1.14-reconnect-and-resume.test.ts`](../tests/spine/T1.14-reconnect-and-resume.test.ts)                                 | A subscriber that disconnects can reconnect with `?since=<lastEventId>` and receive only the envelopes that arrived during the gap (when within buffer capacity). `?since=<latest>` returns no replay — the buffer respects the cursor and never re-delivers already-seen envelopes.         |     2 | #17                    |
 | T1.15 | [`T1.15-transcript-route.test.ts`](../tests/spine/T1.15-transcript-route.test.ts)                                         | `GET /conversations/:id/transcript` returns the full JSONL projection (`TranscriptResponse`). Reflects file-system reality: missing/empty file → `lines: []`; populated file → in-order lines with monotonic `line_number` + `byte_offset`. Wraps the `@clod-ui/transcripts` `readAllLines`. |     2 | #20a                   |
 
-**Total: 26 / 26 tests live across 15 contract files. 0 reserved.**
+| T1.16 | [`T1.16-static-assets.test.ts`](../tests/spine/T1.16-static-assets.test.ts) | Opt-in `static: { dir }` serves the built SPA from the engine origin: `/` → index.html, exact assets served, unknown paths → SPA fallback, API routes win, resolution never escapes the root, unconfigured engines keep their 404. | 4 | #21 |
+| T1.17 | [`T1.17-turn-controls-passthrough.test.ts`](../tests/spine/T1.17-turn-controls-passthrough.test.ts) | `model` + `thinking_effort` + `system_prompt` + `extra_argv` in the `POST /turns` body reach the backend's `TurnRequest` unmodified and `compose()` to `--model` / `--effort` / `--append-system-prompt`-or-`--system-prompt` argv pairs plus a verbatim `extra_argv` tail after every composed flag; absent controls compose no flags; an unrecognized `thinking_effort`, malformed `system_prompt`, or malformed `extra_argv` is a 400 and never reaches the backend; `allowed_tools` / `disallowed_tools` compose to `--allowedTools` / `--disallowedTools`. | 9 | #24, #25, #28, #29 |
+
+| T1.18 | [`T1.18-skills-discovery.test.ts`](../tests/spine/T1.18-skills-discovery.test.ts) | `GET /skills` (opt-in) lists SKILL.md-bearing directories from the configured user + project roots with frontmatter descriptions, sorted user-first then by name; missing roots → `{ skills: [] }`; unconfigured → exact I-1 `404 { error: 'skills not configured' }`. Display-only (no per-skill CLI argv exists — `TODO(skills-enablement)`). | 3 | #31 |
+
+| T1.19 | [`T1.19-diagnostics-ring.test.ts`](../tests/spine/T1.19-diagnostics-ring.test.ts) | With diagnostics enabled, every accepted turn records redacted argv (system-prompt text never observable), env key names, stdin byte size, ordered event timeline, terminal outcome; `GET /diagnostics` lists most-recent-first within capacity; unconfigured → exact I-1 `404 { error: 'diagnostics not configured' }`. Wire-only (I-8). | 3 | #32 |
+
+| T1.20 | [`T1.20-attachments-intake.test.ts`](../tests/spine/T1.20-attachments-intake.test.ts) | `POST /conversations/:id/attachments` (JSON+base64, persistence-gated) writes sanitized, collision-suffixed files into the conversation's `attachments/` and returns typed metadata; turn-body `attachments` reach the backend and `compose()` emits the image stdin block + `--add-dir`; malformed body attachments → 400; serving never escapes the dir; unconfigured → exact I-1 404. | 4 | #33 |
+
+**Total: 49 / 49 tests live across 20 contract files. 0 reserved.**
 
 ---
 

@@ -8,3 +8,5 @@ export { parseStreamJsonLine, parseStreamJsonLines } from './parse-stream-json.t
 export type { BackendEventInput } from './parse-stream-json.ts';
 export { classifyCliFailure } from './classify-error.ts';
 export type { ClassifyInput } from './classify-error.ts';
+export { splitArgv, warmReusable } from './warm-reuse.ts';
+export type { NextTurnShape, WarmProcessShape } from './warm-reuse.ts';
