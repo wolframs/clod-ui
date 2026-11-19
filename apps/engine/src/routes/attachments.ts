@@ -2,8 +2,10 @@
  * Attachments routes (Phase 6a part 1, PR #33).
  *
  *   POST /conversations/:id/attachments   JSON { name, content_type?,
- *     data_base64 } → 201 AttachmentMeta; provisions the conversation
- *     on demand so upload-before-first-turn works.
+ *     data_base64 } → 201 AttachmentMeta. Upload-before-first-turn works
+ *     without provisioning: the files go to the conversation's own
+ *     directory, and the first turn creates the row on the profile it
+ *     names (PR #45 — provisioning here pinned the implicit profile).
  *   GET  /conversations/:id/attachments/:name  serves the stored file
  *     (image previews); resolution never escapes the attachments dir.
  *
@@ -15,7 +17,7 @@ import { join, resolve, sep } from 'node:path';
 import type { Hono } from 'hono';
 
 import { saveAttachment } from '../attachments.ts';
-import { ensureProvisioned, type ProvisioningContext } from '../provisioning.ts';
+import type { ProvisioningContext } from '../provisioning.ts';
 
 export interface AttachmentsRouteDeps {
   persistence: ProvisioningContext | null;
@@ -52,11 +54,6 @@ export function registerAttachmentsRoutes(app: Hono, deps: AttachmentsRouteDeps)
       return c.json({ error: 'data_base64 is not valid base64' }, 400);
     }
 
-    try {
-      await ensureProvisioned(persistence, { convId });
-    } catch (err) {
-      return c.json({ error: { kind: 'provisioning_failed', detail: String(err) } }, 500);
-    }
     const attachmentsDir = join(persistence.store.conversationDir(convId), 'attachments');
     const saved = await saveAttachment({ attachmentsDir, name, bytes });
     return c.json(

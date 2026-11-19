@@ -36,10 +36,15 @@ export interface ProvisioningContext {
 /**
  * Provision a conversation if it doesn't exist yet. Idempotent: a second call
  * with the same id is a no-op (no duplicate manifest line, no DB conflict).
+ *
+ * `cwd`: a directory, `null` for the conversation's own `<conv>/cwd/` (a
+ * profile with `cwd: null`, PR #45), or omitted for `defaultCwd` then its
+ * own. `profile`: stored on the row and the `conversation.created` event;
+ * omitted = the implicit profile (NULL, no event field).
  */
 export async function ensureProvisioned(
   ctx: ProvisioningContext,
-  args: { convId: string; cwd?: string },
+  args: { convId: string; cwd?: string | null; profile?: string },
 ): Promise<{ created: boolean; cwd: string }> {
   const existing = getConversation(ctx.db, args.convId);
   if (existing) {
@@ -47,13 +52,21 @@ export async function ensureProvisioned(
   }
 
   const convDir = ctx.store.conversationDir(args.convId);
-  const cwdDir = args.cwd ?? ctx.defaultCwd ?? join(convDir, 'cwd');
+  const ownDir = join(convDir, 'cwd');
+  const cwdDir = args.cwd === null ? ownDir : (args.cwd ?? ctx.defaultCwd ?? ownDir);
   const scratchDir = join(convDir, 'scratch');
   mkdirSync(cwdDir, { recursive: true });
   mkdirSync(scratchDir, { recursive: true });
 
-  await ctx.store.appendEvent(args.convId, { kind: 'conversation.created' });
-  createConversation(ctx.db, { id: args.convId, cwd: cwdDir });
+  await ctx.store.appendEvent(args.convId, {
+    kind: 'conversation.created',
+    ...(args.profile !== undefined && { profile: args.profile }),
+  });
+  createConversation(ctx.db, {
+    id: args.convId,
+    cwd: cwdDir,
+    ...(args.profile !== undefined && { profile: args.profile }),
+  });
 
   return { created: true, cwd: cwdDir };
 }

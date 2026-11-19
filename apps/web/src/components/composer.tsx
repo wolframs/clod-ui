@@ -15,6 +15,11 @@
  *     the user's text so they can retry without losing it.
  *   - Cancel button is visible only when `turnStatus === 'streaming'`.
  *   - When `convId` is undefined a hint replaces the form.
+ *
+ * `compact` is the phone layout (PR #44): a box with + and send inside it
+ * that grows with its text, controls below it, stop in place of send. Enter
+ * is a newline there, the keyboard has no Shift; sending drops the keyboard
+ * so that the reply has the screen.
  */
 import * as React from 'react';
 
@@ -55,6 +60,8 @@ export interface ComposerProps {
   attachments?: UploadedAttachment[];
   onAttachFiles?: (files: ArrayLike<File>) => void;
   onRemoveAttachment?: (name: string) => void;
+  /** Phone layout (PR #44). */
+  compact?: boolean;
   className?: string;
 }
 
@@ -72,6 +79,7 @@ export function Composer(props: ComposerProps): React.ReactElement {
     attachments = [],
     onAttachFiles,
     onRemoveAttachment,
+    compact = false,
     className,
   } = props;
 
@@ -121,10 +129,11 @@ export function Composer(props: ComposerProps): React.ReactElement {
     const value = text;
     setText(''); // clear synchronously so a fast typist doesn't double-fire
     onSubmit(value);
+    if (compact) textareaRef.current?.blur();
   };
 
   const handleKeyDown = (ev: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (ev.key === 'Enter' && !ev.shiftKey) {
+    if (ev.key === 'Enter' && !ev.shiftKey && !compact) {
       // Don't submit on IME composition (Japanese/Chinese input)
       if (ev.nativeEvent.isComposing) return;
       ev.preventDefault();
@@ -135,6 +144,20 @@ export function Composer(props: ComposerProps): React.ReactElement {
   const handleCancel = (): void => {
     if (cancelableTurnId !== undefined) onCancel(cancelableTurnId);
   };
+
+  const fileInput = onAttachFiles && (
+    <input
+      ref={fileInputRef}
+      data-test="composer-file-input"
+      type="file"
+      multiple
+      className="hidden"
+      onChange={(ev) => {
+        if (ev.target.files?.length) onAttachFiles(ev.target.files);
+        ev.target.value = '';
+      }}
+    />
+  );
 
   return (
     <form
@@ -158,7 +181,8 @@ export function Composer(props: ComposerProps): React.ReactElement {
         if (ev.dataTransfer?.files?.length) onAttachFiles(ev.dataTransfer.files);
       }}
       className={cn(
-        'flex flex-col gap-2 border-t border-border bg-card p-3',
+        'flex flex-col border-t border-border bg-card',
+        compact ? 'gap-1 px-2 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-2' : 'gap-2 p-3',
         dragging && 'ring-2 ring-ring',
         className,
       )}
@@ -184,7 +208,7 @@ export function Composer(props: ComposerProps): React.ReactElement {
           )}
         </div>
       )}
-      {controls}
+      {!compact && controls}
       {attachments.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           {attachments.map((att) => (
@@ -217,61 +241,108 @@ export function Composer(props: ComposerProps): React.ReactElement {
           ))}
         </div>
       )}
-      <textarea
-        ref={textareaRef}
-        data-test="composer-input"
-        aria-label="Message"
-        value={text}
-        onChange={(ev) => setText(ev.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Type a message…  (Enter to send · Shift+Enter for newline)"
-        rows={3}
-        className="min-h-[5rem] resize-none rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-      />
-      <div className="flex items-center justify-end gap-2">
-        {onAttachFiles && (
-          <>
-            <input
-              ref={fileInputRef}
-              data-test="composer-file-input"
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(ev) => {
-                if (ev.target.files?.length) onAttachFiles(ev.target.files);
-                ev.target.value = '';
-              }}
-            />
-            <button
-              data-test="composer-attach"
-              type="button"
-              aria-label="Attach files"
-              onClick={() => fileInputRef.current?.click()}
-              className="mr-auto rounded-md border border-input bg-background px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              📎
-            </button>
-          </>
-        )}
-        {showCancel && (
-          <button
-            data-test="composer-cancel"
-            type="button"
-            onClick={handleCancel}
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
-          >
-            Cancel
-          </button>
-        )}
-        <button
-          data-test="composer-send"
-          type="submit"
-          disabled={!canSend}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+      {compact ? (
+        <div
+          data-test="composer-box"
+          className="flex items-end gap-1 rounded-3xl border border-input bg-background p-1 focus-within:ring-1 focus-within:ring-ring"
         >
-          {submitState.status === 'submitting' ? 'Sending…' : 'Send'}
-        </button>
-      </div>
+          {onAttachFiles && (
+            <>
+              {fileInput}
+              <button
+                data-test="composer-attach"
+                type="button"
+                aria-label="Attach files"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-muted-foreground active:bg-accent"
+              >
+                ＋
+              </button>
+            </>
+          )}
+          <textarea
+            ref={textareaRef}
+            data-test="composer-input"
+            aria-label="Message"
+            value={text}
+            onChange={(ev) => setText(ev.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Message Claude…"
+            rows={1}
+            className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-6 outline-none [field-sizing:content] placeholder:text-muted-foreground"
+          />
+          {showCancel ? (
+            <button
+              data-test="composer-cancel"
+              type="button"
+              aria-label="Stop"
+              onClick={handleCancel}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+            >
+              <span aria-hidden className="h-3 w-3 rounded-sm bg-current" />
+            </button>
+          ) : (
+            <button
+              data-test="composer-send"
+              type="submit"
+              aria-label="Send"
+              disabled={!canSend}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-lg text-primary-foreground disabled:opacity-30"
+            >
+              ↑
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <textarea
+            ref={textareaRef}
+            data-test="composer-input"
+            aria-label="Message"
+            value={text}
+            onChange={(ev) => setText(ev.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a message…  (Enter to send · Shift+Enter for newline)"
+            rows={3}
+            className="min-h-[5rem] resize-none rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <div className="flex items-center justify-end gap-2">
+            {onAttachFiles && (
+              <>
+                {fileInput}
+                <button
+                  data-test="composer-attach"
+                  type="button"
+                  aria-label="Attach files"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mr-auto rounded-md border border-input bg-background px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  📎
+                </button>
+              </>
+            )}
+            {showCancel && (
+              <button
+                data-test="composer-cancel"
+                type="button"
+                onClick={handleCancel}
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              data-test="composer-send"
+              type="submit"
+              disabled={!canSend}
+              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitState.status === 'submitting' ? 'Sending…' : 'Send'}
+            </button>
+          </div>
+        </>
+      )}
+      {compact && controls}
     </form>
   );
 }

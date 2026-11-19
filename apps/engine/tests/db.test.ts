@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
 import {
@@ -9,6 +10,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   getConversation,
   listConversations,
+  MIGRATIONS,
   openDb,
   setSessionId,
 } from '../src/db/index.ts';
@@ -96,6 +98,42 @@ describe('openDb migrations', () => {
   });
 });
 
+describe('migration 2 (PR #45)', () => {
+  test('a v1 database keeps its rows, each with profile NULL', () => {
+    const root = mkRoot();
+    try {
+      const dbPath = join(root, 'test.sqlite');
+      // Build the schema exactly as v1 left it, with one row.
+      const v1 = new Database(dbPath, { create: true });
+      v1.exec(
+        `CREATE TABLE _migrations (version INTEGER PRIMARY KEY, description TEXT NOT NULL, applied_at INTEGER NOT NULL);`,
+      );
+      v1.exec(MIGRATIONS[0]!.up);
+      v1.run('INSERT INTO _migrations VALUES (1, ?, 0)', [MIGRATIONS[0]!.description]);
+      v1.run(
+        "INSERT INTO conversations (id, claude_session_id, cwd, created_at) VALUES (?, 's1', '/old', 7)",
+        [CONV_A],
+      );
+      v1.close();
+
+      const db = openDb({ path: dbPath });
+      try {
+        expect(getConversation(db, CONV_A)).toEqual({
+          id: CONV_A,
+          claude_session_id: 's1',
+          cwd: '/old',
+          created_at: 7,
+          profile: null,
+        });
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('conversations repository', () => {
   test('createConversation + getConversation roundtrip', () => {
     const root = mkRoot();
@@ -104,10 +142,32 @@ describe('conversations repository', () => {
       try {
         const cwd = '/tmp/conv-a/cwd';
         const row = createConversation(db, { id: CONV_A, cwd, created_at: 5000 });
-        expect(row).toEqual({ id: CONV_A, claude_session_id: null, cwd, created_at: 5000 });
+        expect(row).toEqual({
+          id: CONV_A,
+          claude_session_id: null,
+          cwd,
+          created_at: 5000,
+          profile: null,
+        });
 
         const fetched = getConversation(db, CONV_A);
         expect(fetched).toEqual(row);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a profile id round-trips (PR #45)', () => {
+    const root = mkRoot();
+    try {
+      const db = openDb({ path: join(root, 'test.sqlite') });
+      try {
+        createConversation(db, { id: CONV_A, cwd: '/a', profile: 'lab' });
+        expect(getConversation(db, CONV_A)?.profile).toBe('lab');
+        expect(listConversations(db)[0]?.profile).toBe('lab');
       } finally {
         db.close();
       }

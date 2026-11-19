@@ -39,6 +39,15 @@ describe('compose — prefix invariants', () => {
     expect(argv[0]).toBe('/opt/claude/bin/claude');
   });
 
+  test("a turn's claude_binary (PR #45) wins over the claudeBinary option", () => {
+    const { argv } = compose(
+      { ...base(), claude_binary: '/seat/clod_seat.sh' },
+      { claudeBinary: '/opt/claude/bin/claude' },
+    );
+    expect(argv[0]).toBe('/seat/clod_seat.sh');
+    expect(compose({ ...base(), claude_binary: 'seat' }).argv[0]).toBe('seat');
+  });
+
   test('bare request yields no resume/model/effort/system-prompt flags', () => {
     const { argv } = compose(base());
     for (const flag of [

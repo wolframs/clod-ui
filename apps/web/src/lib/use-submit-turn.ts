@@ -45,6 +45,8 @@ export interface SubmitArgs {
   system_prompt?: SubmitTurnInput['system_prompt'];
   extra_argv?: string[];
   attachments?: SubmitTurnInput['attachments'];
+  /** Profile id (PR #45): sent only on a conversation's first turn. */
+  profile?: string;
 }
 
 export interface UseSubmitTurnReturn {
@@ -129,6 +131,7 @@ export function useSubmitTurn(opts: UseSubmitTurnOptions): UseSubmitTurnReturn {
         ...(args.system_prompt !== undefined && { system_prompt: args.system_prompt }),
         ...(args.extra_argv !== undefined && { extra_argv: args.extra_argv }),
         ...(args.attachments !== undefined && { attachments: args.attachments }),
+        ...(args.profile !== undefined && { profile: args.profile }),
       };
 
       try {

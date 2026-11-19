@@ -1,6 +1,6 @@
 # Spine catalog
 
-The 52 tests across 21 contract files in [`tests/spine/`](../tests/spine/).
+The 60 tests across 22 contract files in [`tests/spine/`](../tests/spine/).
 Each contract is a _behavior_ the engine must preserve across PR
 churn — the spine gates every commit through `bun run ci:fast`.
 
@@ -40,8 +40,9 @@ and headers are authoritative.
 
 | T1.20 | [`T1.20-attachments-intake.test.ts`](../tests/spine/T1.20-attachments-intake.test.ts) | `POST /conversations/:id/attachments` (JSON+base64, persistence-gated) writes sanitized, collision-suffixed files into the conversation's `attachments/` and returns typed metadata; turn-body `attachments` reach the backend and `compose()` emits the image stdin block + `--add-dir`; malformed body attachments → 400; serving never escapes the dir; unconfigured → exact I-1 404. | 4 | #33 |
 | T1.21 | [`T1.21-models-route.test.ts`](../tests/spine/T1.21-models-route.test.ts) | `GET /models` returns the backend's own model list (`{ models, fetched_at }`, schema-valid), probed in the conversations' cwd when configured; a backend without `listModels` → exact I-1 `404 { error: 'models not configured' }`; a failing probe → 502 with the reason. | 3 | #42 |
+| T1.22 | [`T1.22-profiles.test.ts`](../tests/spine/T1.22-profiles.test.ts) | With a profile registry, a new conversation runs on the profile its first turn names (else the default): argv[0] and cwd in `GET /diagnostics` are the profile's; a row with no profile (pre-#45, or made without a registry) runs on the engine-wide binary and its stored cwd; a removed profile → 409 `profile_unavailable`, nothing spawned; `require_browser` without `Origin` → 403 `browser_required`; a differing body profile → 400; an upload before the first turn does not pin the profile; `GET /profiles` lists ids + labels only, and a malformed file keeps the last good registry with a `warning`. | 8 | #45 |
 
-**Total: 52 / 52 tests live across 21 contract files. 0 reserved.**
+**Total: 60 / 60 tests live across 22 contract files. 0 reserved.**
 
 ---
 

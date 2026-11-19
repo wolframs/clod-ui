@@ -2,6 +2,8 @@
 module.exports = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: ['selector', '[data-theme="dark"]'],
+  // A touch leaves no hover behind on the phone (PR #44).
+  future: { hoverOnlyWhenSupported: true },
   theme: {
     extend: {
       colors: {

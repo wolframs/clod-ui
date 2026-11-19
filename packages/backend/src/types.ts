@@ -72,6 +72,11 @@ export interface TurnRequest {
   extra_argv?: string[];
   cwd: string;
   /**
+   * The binary for this turn (PR #45: the conversation's profile). Wins
+   * over the backend-wide `claudeBinary` in `compose()`; absent = that one.
+   */
+  claude_binary?: string;
+  /**
    * `data_base64` is engine-populated at turn time for image attachments
    * (PR #33 smoke evidence): the CLI's stream-json input rejects
    * path-source image blocks; the API-standard base64 source works. The

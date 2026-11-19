@@ -238,6 +238,66 @@ describe('createClient — settings', () => {
     expect((caught as ClientError).kind).toBe('http');
     expect((caught as ClientError).status).toBe(400);
   });
+
+  test("an http error's message carries the engine's reason (PR #45)", async () => {
+    const transport = new FakeTransport();
+    const bodies: unknown[] = [
+      { error: { kind: 'profile_unavailable', profile: 'lab' } },
+      { error: { kind: 'browser_required' } },
+      { error: 'profile is fixed at creation' },
+      { nope: 1 },
+    ];
+    const messages: string[] = [];
+    for (const body of bodies) {
+      transport.responder = () => ({ ok: false, status: 409, body });
+      const client = createClient({ transport });
+      try {
+        await client.submitTurn({ conv_id: 'C', turn_id: 'T', user_message: 'x' });
+      } catch (err) {
+        messages.push((err as ClientError).message);
+      }
+    }
+    expect(messages).toEqual([
+      'POST /conversations/C/turns returned 409: profile_unavailable (lab)',
+      'POST /conversations/C/turns returned 409: browser_required',
+      'POST /conversations/C/turns returned 409: profile is fixed at creation',
+      'POST /conversations/C/turns returned 409',
+    ]);
+  });
+});
+
+describe('createClient — profiles (PR #45)', () => {
+  test('listProfiles parses GET /profiles', async () => {
+    const transport = new FakeTransport();
+    const body = {
+      default: 'seat',
+      profiles: [
+        { id: 'seat', label: 'Seat' },
+        { id: 'plain', label: 'plain Claude' },
+      ],
+    };
+    transport.responder = () => ({ ok: true, status: 200, body });
+    const client = createClient({ transport });
+    expect(await client.listProfiles()).toEqual(body);
+    expect(transport.calls).toEqual([{ method: 'GET', path: '/profiles' }]);
+  });
+
+  test('a bad profile id fails the schema', async () => {
+    const transport = new FakeTransport();
+    transport.responder = () => ({
+      ok: true,
+      status: 200,
+      body: { default: 'Bad Id', profiles: [{ id: 'Bad Id', label: 'x' }] },
+    });
+    const client = createClient({ transport });
+    let caught: unknown;
+    try {
+      await client.listProfiles();
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as ClientError).kind).toBe('schema');
+  });
 });
 
 describe('createClient — conversations', () => {

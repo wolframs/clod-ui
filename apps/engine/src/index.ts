@@ -8,6 +8,7 @@
  *   - `POST .../cancel`          (always-on, see routes/cancel.ts)
  *   - `GET /conversations`       (opt-in via persistence)
  *   - `GET/PUT/PATCH /settings`  (opt-in via opts.settings)
+ *   - `GET /profiles`            (always-on, PR #45; see profiles.ts)
  *
  * Three subsystems gate optional behavior:
  *   - `persistence` (store + db) → provisioning, session-id capture,
@@ -48,6 +49,7 @@ import { openDb } from './db/index.ts';
 import { DefaultTitler } from './default-titler.ts';
 import { DiagnosticsRing } from './diagnostics.ts';
 import { checkRequestOrigin, parseAllowedOrigins } from './origin-guard.ts';
+import { FileProfileSource, staticProfiles, type ProfileSource } from './profiles.ts';
 import { ReplayBuffer } from './replay-buffer.ts';
 import { registerAttachmentsRoutes } from './routes/attachments.ts';
 import { registerCancelRoutes } from './routes/cancel.ts';
@@ -55,6 +57,7 @@ import { registerConversationsRoutes } from './routes/conversations.ts';
 import { registerDiagnosticsRoutes } from './routes/diagnostics.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerModelsRoutes } from './routes/models.ts';
+import { registerProfilesRoutes } from './routes/profiles.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { registerSkillsRoutes } from './routes/skills.ts';
 import { registerStaticRoutes } from './routes/static.ts';
@@ -92,6 +95,12 @@ export interface CreateAppOptions {
    * its own provisioned directory.
    */
   conversationCwd?: string;
+  /**
+   * Optional (PR #45, env `CLOD_UI_PROFILES`): the conversation-profile
+   * registry, read on every turn. Omitted = the one implicit profile, i.e.
+   * the engine-wide binary and `conversationCwd` (pre-#45 behaviour).
+   */
+  profiles?: ProfileSource;
   /**
    * Optional: enables the per-conversation transcript watcher. Requires
    * persistence to be enabled too — without `store` + `db`, the engine cannot
@@ -247,6 +256,7 @@ export function createApp(opts: CreateAppOptions): AppContext {
         opts.diagnostics.capacity !== undefined ? { capacity: opts.diagnostics.capacity } : {},
       )
     : null;
+  const profiles = opts.profiles ?? staticProfiles();
 
   const app = new Hono();
 
@@ -263,8 +273,10 @@ export function createApp(opts: CreateAppOptions): AppContext {
     transcripts,
     titler,
     diagnostics: diagnosticsRing,
+    profiles,
   });
   registerCancelRoutes(app, { backend });
+  registerProfilesRoutes(app, { profiles });
 
   // Opt-in routes.
   registerConversationsRoutes(app, { persistence });
@@ -508,11 +520,22 @@ if (import.meta.main) {
   // the engine origin serves the web UI (same-origin production model).
   const staticDir = process.env['CLOD_UI_STATIC_DIR'];
   const liveOpts: CreateAppOptions = { backend: defaultBackend };
-  if (store && db) {
+  if (store && db && appDataDir) {
     liveOpts.store = store;
     liveOpts.db = db;
     const conversationCwd = process.env['CLOD_UI_CONVERSATION_CWD'];
     if (conversationCwd) liveOpts.conversationCwd = conversationCwd;
+    // Profiles (PR #45): CLOD_UI_PROFILES, else <app-data>/profiles.json;
+    // re-read on change, and no file means the implicit profile.
+    const profilesPath = process.env['CLOD_UI_PROFILES'] || join(appDataDir, 'profiles.json');
+    const profileSource = new FileProfileSource({ path: profilesPath });
+    liveOpts.profiles = profileSource;
+    const { registry, warning } = profileSource.current();
+    // eslint-disable-next-line no-console
+    console.log(
+      `[engine] profiles: ${registry.profiles.map((p) => p.id).join(', ')} (default ${registry.default})` +
+        (warning !== undefined ? ` — ${warning}` : ''),
+    );
     if (projectsDir) liveOpts.transcripts = { projectsDir };
     // Auto-titling defaults to DefaultTitler (`claude -p` against Haiku,
     // with FallbackTitler delegation on every failure path).

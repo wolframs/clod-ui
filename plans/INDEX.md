@@ -20,6 +20,7 @@ Naming convention: `YYYY-MM-DD-clod-ui-<pr-or-doc>-v<N>.md`.
 | File | PR | Surface |
 |---|---|---|
 | [`2026-06-12-clod-ui-pr37-ci-nightly-v1.md`](./2026-06-12-clod-ui-pr37-ci-nightly-v1.md) | #37 | ci:nightly de-stubbing (goal S12): xhigh effort pinned by evidence + first contract tape + flake shuffle + guarded live smoke. |
+| [`2026-11-05-clod-ui-pr45-profiles-v1.md`](./2026-11-05-clod-ui-pr45-profiles-v1.md) | #45 | Conversation profiles: registry file (binary + cwd per profile), fixed at creation, `GET /profiles`, picker beside + New; spine T1.22. |
 
 ## Landed (shipped PRs)
 
@@ -76,6 +77,7 @@ Naming convention: `YYYY-MM-DD-clod-ui-<pr-or-doc>-v<N>.md`.
 | #41 | [`pr41-warm-lifecycle-edges-v1`](./landed/2026-10-27-clod-ui-pr41-warm-lifecycle-edges-v1.md) | Turn ownership token (a late `finally` can't retire the next turn's process); retirement done only when the whole process group is gone. |
 | #42 | [`pr42-models-and-effort-v1`](./landed/2026-10-27-clod-ui-pr42-models-and-effort-v1.md) | The CLI's own model list (`GET /models` via the initialize control request) in the picker; effort = `/effort`'s levels (auto…max, ultracode), gated per model; spine T1.21. |
 | #43 | [`pr43-warm-review-fixes-v1`](./2026-10-27-clod-ui-pr43-warm-review-fixes-v1.md) | Warm review fixes: handles stay tracked until their group sweep ends (stop() waits; self-exiting leaders swept); raw session flags (`--resume s2`, `--fork-session`, …) block reuse. |
+| #44 | [`pr44-mobile-v1`](./landed/2026-11-01-clod-ui-pr44-mobile-v1.md) | The phone layout below 768 px: drawer, top bar, composer box, controls sheet; conversation in the URL hash; Back closes overlays; installable. Tool cards really collapse; results fold across messages. |
 
 ## Conventions
 

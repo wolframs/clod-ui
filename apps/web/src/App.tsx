@@ -5,6 +5,9 @@ import { Composer } from '@/components/composer';
 import { ConnectionBanner } from '@/components/connection-banner';
 import { DiagnosticsPanel } from '@/components/diagnostics-panel';
 import { HealthBadge } from '@/components/health-badge';
+import { MobileControls } from '@/components/mobile-controls';
+import { MobileTopBar } from '@/components/mobile-top-bar';
+import { ProfileLabel } from '@/components/profile-picker';
 import { SettingsPanel } from '@/components/settings-panel';
 import { ShortcutOverlay } from '@/components/shortcut-overlay';
 import { Sidebar } from '@/components/sidebar';
@@ -15,14 +18,19 @@ import { TurnControlsBar } from '@/components/turn-controls-bar';
 import { TurnView } from '@/components/turn-view';
 import { useEngine } from '@/lib/engine-context';
 import type { KeyAction } from '@/lib/keymap';
+import { hasProfileChoice, profileForTurn, profileLabelFor } from '@/lib/profiles';
 import type { TurnControls } from '@/lib/turn-controls';
 import { effectiveExtraArgv, effectiveSystemPrompt } from '@/lib/turn-controls';
 import { useAttachmentUploads } from '@/lib/use-attachment-uploads';
+import { useBackDismiss } from '@/lib/use-back-dismiss';
+import { useCompact } from '@/lib/use-compact';
+import { useConversationRoute } from '@/lib/use-conversation-route';
 import { useConversations } from '@/lib/use-conversations';
 import { useDiagnostics } from '@/lib/use-diagnostics';
 import { useHealth } from '@/lib/use-health';
 import { useKeymap } from '@/lib/use-keymap';
 import { useModels } from '@/lib/use-models';
+import { useProfiles } from '@/lib/use-profiles';
 import { useSettings } from '@/lib/use-settings';
 import { useSkills } from '@/lib/use-skills';
 import { useStickyBottom } from '@/lib/use-sticky-bottom';
@@ -30,6 +38,7 @@ import { useSubmitTurn } from '@/lib/use-submit-turn';
 import { useTheme } from '@/lib/use-theme';
 import { useTranscript } from '@/lib/use-transcript';
 import { useTurnStream } from '@/lib/use-turn-stream';
+import { cn } from '@/lib/utils';
 
 const generateConvId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -92,9 +101,14 @@ export function App(): JSX.Element {
   const refreshConversations = useCallback(() => setConversationsKey((k) => k + 1), []);
   const conversations = useConversations(conversationsKey);
   const theme = useTheme();
-  // TODO(layout-state): hoist selectedId into a typed layout-state module
-  // + localStorage when the 3-pane PR (#18d) lands.
-  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  // The selection lives in the URL hash (PR #44): a reload keeps it, Back
+  // walks it.
+  const { selectedId, select } = useConversationRoute();
+  // Phone layout (PR #44). Open overlays hold a history entry there, so the
+  // Back button closes them.
+  const compact = useCompact();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerBack = useBackDismiss(compact && drawerOpen, () => setDrawerOpen(false));
 
   // The user's own message, shown above the live turn until the transcript
   // has it (the turn stream carries only the model's side).
@@ -256,10 +270,47 @@ export function App(): JSX.Element {
   }, [streamingTurnId, transcript.state]);
   // A refused submit never ran: its message must not stay shown as sent.
   const submitFailed = submit.state.status === 'error';
+  // A refused first turn created nothing (PR #45: the profile is resolved
+  // before provisioning), so the next try takes the picker's choice again.
+  const sentProfileRef = useRef<Record<string, string>>({});
   useEffect(() => {
-    if (submitFailed) setPendingUser(null);
-  }, [submitFailed]);
+    if (!submitFailed) return;
+    setPendingUser(null);
+    if (selectedId !== undefined) delete sentProfileRef.current[selectedId];
+  }, [submitFailed, selectedId]);
   const uploads = useAttachmentUploads({ conv_id: selectedId });
+
+  // Conversation profiles (PR #45). The choice applies to conversations the
+  // engine does not list yet; a listed one is fixed. What this tab sent on a
+  // conversation's first turn is kept, so a quick second turn sends the same.
+  const profiles = useProfiles();
+  const profilesRes = profiles.state.status === 'ok' ? profiles.state.profiles : undefined;
+  const selectedSummary =
+    conversations.status === 'ok'
+      ? conversations.conversations.find((c) => c.conv_id === selectedId)
+      : undefined;
+  const choice = hasProfileChoice(profilesRes);
+  const turnProfile =
+    selectedId !== undefined
+      ? profileForTurn({
+          listed: selectedSummary !== undefined,
+          sent: sentProfileRef.current[selectedId],
+          next: profiles.next,
+          choice,
+        })
+      : undefined;
+  const selectedProfileLabel = profileLabelFor(
+    selectedSummary !== undefined ? selectedSummary.profile : turnProfile,
+    profilesRes,
+  );
+  const profileChoice =
+    choice && profiles.next !== undefined
+      ? { profiles: profilesRes.profiles, value: profiles.next, onChange: profiles.setNext }
+      : undefined;
+  const profileLabelOf = useCallback(
+    (conv: { profile?: string | undefined }) => profileLabelFor(conv.profile, profilesRes),
+    [profilesRes],
+  );
 
   // Per-conversation turn controls (PR #24): `{}` means "the CLI decides".
   // Lost on reload — TODO(controls-persistence); a settings-backed global
@@ -292,8 +343,30 @@ export function App(): JSX.Element {
   const sticky = useStickyBottom({ containerRef: scrollRef, contentSignal });
 
   const handleNewConversation = useCallback(() => {
-    setSelectedId(generateConvId());
-  }, []);
+    select(generateConvId());
+  }, [select]);
+
+  // From the drawer: the conversation takes the drawer's history entry, so
+  // Back leads to the previous conversation, not to a reopened drawer.
+  const handleSidebarSelect = useCallback(
+    (convId: string) => {
+      if (!compact || !drawerOpen) {
+        select(convId);
+      } else if (convId === selectedId) {
+        setDrawerOpen(false);
+      } else {
+        drawerBack.release();
+        setDrawerOpen(false);
+        select(convId, { replace: true });
+      }
+    },
+    [compact, drawerOpen, drawerBack, select, selectedId],
+  );
+
+  // A phone opens on a fresh composer, not on an empty pane.
+  useEffect(() => {
+    if (compact && selectedId === undefined) select(generateConvId(), { replace: true });
+  }, [compact, selectedId, select]);
 
   // A pending user bubble belongs to the conversation it was typed in.
   useEffect(() => {
@@ -313,6 +386,22 @@ export function App(): JSX.Element {
   // Diagnostics panel (PR #32): hidden by default, fetch on open.
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const diagnostics = useDiagnostics({ enabled: diagnosticsOpen });
+
+  useBackDismiss(compact && settingsOpen, () => setSettingsOpen(false));
+  useBackDismiss(compact && skillsOpen, () => setSkillsOpen(false));
+  useBackDismiss(compact && diagnosticsOpen, () => setDiagnosticsOpen(false));
+
+  // A panel opened from the drawer takes over the drawer's history entry.
+  const openPanel = useCallback(
+    (open: (value: boolean) => void) => {
+      if (compact && drawerOpen) {
+        drawerBack.release();
+        setDrawerOpen(false);
+      }
+      open(true);
+    },
+    [compact, drawerOpen, drawerBack],
+  );
 
   // Keyboard map (PR #27). The 'escape' action's priority lives here,
   // with the state it arbitrates: shortcut overlay, then the settings
@@ -345,7 +434,7 @@ export function App(): JSX.Element {
                   list.length - 1,
                 );
           const target = list[next];
-          if (target) setSelectedId(target.conv_id);
+          if (target) select(target.conv_id, { replace: true });
           break;
         }
         case 'escape': {
@@ -379,6 +468,7 @@ export function App(): JSX.Element {
     [
       handleNewConversation,
       conversations,
+      select,
       selectedId,
       helpOpen,
       settingsOpen,
@@ -406,6 +496,9 @@ export function App(): JSX.Element {
             ]
           : [],
       );
+      if (selectedId !== undefined && turnProfile !== undefined && text.trim() !== '') {
+        sentProfileRef.current[selectedId] = turnProfile;
+      }
       if (selectedId !== undefined && text.trim() !== '') {
         const watermark = transcript.state.status === 'ok' ? transcript.state.messages.length : 0;
         nextSubmitRef.current = { modelKey: turnControls.model ?? 'default', watermark };
@@ -429,11 +522,20 @@ export function App(): JSX.Element {
             disallowed_tools: turnControls.disallowed_tools,
           }),
           ...(readyAttachments.length > 0 && { attachments: readyAttachments }),
+          ...(turnProfile !== undefined && { profile: turnProfile }),
         })
         .then(refreshConversations);
       uploads.clear();
     },
-    [submit, turnControls, uploads, selectedId, transcript.state, refreshConversations],
+    [
+      submit,
+      turnControls,
+      uploads,
+      selectedId,
+      transcript.state,
+      refreshConversations,
+      turnProfile,
+    ],
   );
 
   const handleCancel = useCallback(
@@ -448,16 +550,96 @@ export function App(): JSX.Element {
     [client, selectedId],
   );
 
+  const panelButton =
+    'rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground';
+  const panelButtons = (buttonClass: string): JSX.Element => (
+    <>
+      <ThemeToggle
+        preference={theme.preference}
+        resolved={theme.resolved}
+        onChange={theme.setPreference}
+        className={buttonClass}
+      />
+      <button
+        data-test="settings-open"
+        type="button"
+        onClick={() => openPanel(setSettingsOpen)}
+        className={cn(panelButton, buttonClass)}
+      >
+        ⚙ Settings
+      </button>
+      <button
+        data-test="skills-open"
+        type="button"
+        onClick={() => openPanel(setSkillsOpen)}
+        className={cn(panelButton, buttonClass)}
+      >
+        ✦ Skills
+      </button>
+      <button
+        data-test="diagnostics-open"
+        type="button"
+        onClick={() => openPanel(setDiagnosticsOpen)}
+        className={cn(panelButton, buttonClass)}
+      >
+        ◇ Debug
+      </button>
+    </>
+  );
+
+  const selectedTitle = selectedSummary?.title;
+
   return (
-    <div className="flex h-screen min-h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div
+      data-test="app-root"
+      className="flex h-[calc(100dvh-var(--tab-overhang))] w-full overflow-hidden bg-background text-foreground"
+    >
+      {compact && drawerOpen ? (
+        <button
+          data-test="drawer-backdrop"
+          type="button"
+          aria-label="Close menu"
+          onClick={() => setDrawerOpen(false)}
+          className="fixed inset-x-0 bottom-[var(--tab-overhang)] top-0 z-40 bg-background/70 backdrop-blur-sm"
+        />
+      ) : null}
       <Sidebar
         state={conversations}
         selectedId={selectedId}
-        onSelect={setSelectedId}
-        onNew={handleNewConversation}
-        className="w-72 shrink-0"
+        onSelect={handleSidebarSelect}
+        onNew={() => handleSidebarSelect(generateConvId())}
+        compact={compact}
+        onClose={() => setDrawerOpen(false)}
+        profileChoice={profileChoice}
+        profileLabelOf={profileLabelOf}
+        footer={
+          compact ? (
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-1">{panelButtons('px-3 py-2.5 text-sm')}</div>
+              <HealthBadge state={health} className="self-start text-xs" />
+            </div>
+          ) : undefined
+        }
+        className={
+          compact
+            ? cn(
+                'fixed bottom-[var(--tab-overhang)] left-0 top-0 z-50 w-[85%] max-w-[22rem] bg-background shadow-xl transition-[transform,visibility]',
+                drawerOpen ? 'visible translate-x-0' : 'invisible -translate-x-full',
+              )
+            : 'w-72 shrink-0'
+        }
       />
-      <main className="relative flex flex-1 flex-col overflow-hidden">
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {compact ? (
+          <MobileTopBar
+            title={selectedTitle ?? 'New conversation'}
+            busy={turnState.status === 'streaming'}
+            onMenu={() => setDrawerOpen(true)}
+            onNew={handleNewConversation}
+            profileChoice={profileChoice}
+            profileLabel={selectedProfileLabel}
+          />
+        ) : null}
         <ShortcutOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />
         <SettingsPanel
           open={settingsOpen}
@@ -493,16 +675,24 @@ export function App(): JSX.Element {
             className="relative flex flex-1 flex-col overflow-hidden"
             data-test="conversation-pane"
           >
+            {!compact && selectedProfileLabel !== undefined ? (
+              <div
+                className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-1 text-xs text-muted-foreground"
+                data-test="conversation-profile"
+              >
+                <ProfileLabel label={selectedProfileLabel} />
+              </div>
+            ) : null}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto"
+              className="flex-1 overflow-y-auto overscroll-contain"
               data-test="conversation-scroll"
               data-at-bottom={sticky.isAtBottom ? 'true' : 'false'}
             >
               <TranscriptHistory state={transcript.state} />
               {pendingUser !== null && pendingUser.convId === selectedId ? (
-                <div className="px-6 pb-3" data-test="pending-user-message">
-                  <article className="flex flex-col gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-4 text-sm">
+                <div className="px-3 pb-3 md:px-6" data-test="pending-user-message">
+                  <article className="flex flex-col gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-3 text-[15px] leading-relaxed max-md:ml-8 md:p-4 md:text-sm">
                     <header className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Human
                     </header>
@@ -518,7 +708,7 @@ export function App(): JSX.Element {
               <button
                 type="button"
                 onClick={sticky.scrollToBottom}
-                className="absolute bottom-3 right-6 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-md transition-opacity hover:bg-muted"
+                className="absolute bottom-3 right-3 rounded-full border border-border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-md transition-opacity hover:bg-muted md:right-6 md:py-1.5"
                 data-test="jump-to-bottom"
               >
                 ↓ Latest
@@ -535,59 +725,39 @@ export function App(): JSX.Element {
           onCancel={handleCancel}
           onResetError={submit.reset}
           inputRef={composerInputRef}
+          compact={compact}
           attachments={uploads.attachments}
           onAttachFiles={uploads.addFiles}
           onRemoveAttachment={uploads.remove}
           controls={
-            selectedId !== undefined ? (
-              // Keyed by conv so the bar's local "Custom…" mode resets
-              // alongside the per-conversation controls value.
-              <TurnControlsBar
-                key={selectedId}
-                {...(models.state.status === 'ok' ? { models: models.state.models } : {})}
-                resolvedModels={resolvedModels}
-                value={turnControls}
-                onChange={handleControlsChange}
-                disabled={submit.state.status === 'submitting'}
-              />
-            ) : undefined
+            selectedId !== undefined
+              ? (() => {
+                  const barProps = {
+                    ...(models.state.status === 'ok' ? { models: models.state.models } : {}),
+                    resolvedModels,
+                    value: turnControls,
+                    onChange: handleControlsChange,
+                    disabled: submit.state.status === 'submitting',
+                  };
+                  // Keyed by conv so the bar's local "Custom…" mode resets
+                  // alongside the per-conversation controls value.
+                  return compact ? (
+                    <MobileControls key={selectedId} {...barProps} />
+                  ) : (
+                    <TurnControlsBar key={selectedId} {...barProps} />
+                  );
+                })()
+              : undefined
           }
         />
-        {/* Footer with theme toggle + health badge stays visible even while a turn renders. */}
-        <footer className="flex shrink-0 items-center justify-between border-t border-border px-4 py-1.5">
-          <div className="flex items-center gap-2">
-            <ThemeToggle
-              preference={theme.preference}
-              resolved={theme.resolved}
-              onChange={theme.setPreference}
-            />
-            <button
-              data-test="settings-open"
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              ⚙ Settings
-            </button>
-            <button
-              data-test="skills-open"
-              type="button"
-              onClick={() => setSkillsOpen(true)}
-              className="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              ✦ Skills
-            </button>
-            <button
-              data-test="diagnostics-open"
-              type="button"
-              onClick={() => setDiagnosticsOpen(true)}
-              className="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              ◇ Debug
-            </button>
-          </div>
-          <HealthBadge state={health} />
-        </footer>
+        {/* Footer with theme toggle + health badge stays visible even while a turn renders.
+            On a phone this lives at the foot of the drawer. */}
+        {compact ? null : (
+          <footer className="flex shrink-0 items-center justify-between border-t border-border px-4 py-1.5">
+            <div className="flex items-center gap-2">{panelButtons('px-2 py-0.5 text-xs')}</div>
+            <HealthBadge state={health} />
+          </footer>
+        )}
       </main>
     </div>
   );

@@ -21,6 +21,7 @@ import { DiagnosticsResponseSchema, type DiagnosticsResponse } from '../diagnost
 import type { EventEnvelope } from '../event-envelope.ts';
 import { HealthResponseSchema, type HealthResponse } from '../health.ts';
 import { ModelsResponseSchema, type ModelsResponse } from '../models.ts';
+import { ProfilesResponseSchema, type ProfilesResponse } from '../profiles.ts';
 import { ClaudeSettingsSchema, type ClaudeSettings } from '../settings.ts';
 import { SkillsResponseSchema, type SkillsResponse } from '../skills.ts';
 import { TranscriptResponseSchema, type TranscriptResponse } from '../transcript.ts';
@@ -48,6 +49,11 @@ export interface SubmitTurnInput {
   extra_argv?: string[];
   /** File-by-reference attachments (PR #33): paths from uploadAttachment. */
   attachments?: Array<{ path: string; content_type?: string }>;
+  /**
+   * Profile id (PR #45). Taken on the conversation's first turn; on a later
+   * turn it must equal the conversation's own, or the engine answers 400.
+   */
+  profile?: string;
 }
 
 export interface CancelTurnInput {
@@ -120,6 +126,8 @@ export interface Client {
   getSkills(opts?: RequestOptions): Promise<SkillsResponse>;
   /** The CLI's own model list (PR #42). 404 → 'not_configured'. */
   getModels(opts?: RequestOptions): Promise<ModelsResponse>;
+  /** Conversation profiles (PR #45). Always on. */
+  listProfiles(opts?: RequestOptions): Promise<ProfilesResponse>;
   /** Per-turn diagnostics ring (PR #32). 404 → 'not_configured'. */
   getDiagnostics(opts?: RequestOptions): Promise<DiagnosticsResponse>;
   /** Attachment intake (PR #33). 404 → 'not_configured'. */
@@ -164,9 +172,10 @@ export function createClient(opts: CreateClientOptions): Client {
           path: req.path,
         });
       }
+      const detail = errorDetail(res.body);
       throw new ClientError({
         kind: 'http',
-        message: `${req.method} ${req.path} returned ${res.status}`,
+        message: `${req.method} ${req.path} returned ${res.status}${detail ? `: ${detail}` : ''}`,
         status: res.status,
         path: req.path,
       });
@@ -239,6 +248,13 @@ export function createClient(opts: CreateClientOptions): Client {
         schema: ModelsResponseSchema,
         ...(o?.signal ? { signal: o.signal } : {}),
       }),
+    listProfiles: (o) =>
+      send({
+        method: 'GET',
+        path: '/profiles',
+        schema: ProfilesResponseSchema,
+        ...(o?.signal ? { signal: o.signal } : {}),
+      }),
     getDiagnostics: (o) =>
       send({
         method: 'GET',
@@ -301,6 +317,20 @@ function isNotConfigured(body: unknown): boolean {
   if (typeof body !== 'object' || body === null) return false;
   const err = (body as Record<string, unknown>)['error'];
   return typeof err === 'string' && err.endsWith('not configured');
+}
+
+/**
+ * The engine's reason, when its error body carries one (PR #45): a string
+ * `error`, or `error.kind` plus the field that names what it is about.
+ */
+function errorDetail(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const err = (body as Record<string, unknown>)['error'];
+  if (typeof err === 'string') return err;
+  if (typeof err !== 'object' || err === null) return undefined;
+  const { kind, profile } = err as Record<string, unknown>;
+  if (typeof kind !== 'string') return undefined;
+  return typeof profile === 'string' ? `${kind} (${profile})` : kind;
 }
 
 function notConfiguredMessage(body: unknown): string {

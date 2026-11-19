@@ -168,7 +168,7 @@ export function TurnControlsBar(props: TurnControlsBarProps): React.ReactElement
       <div
         role="group"
         aria-label="Effort"
-        className="flex items-center gap-1 text-muted-foreground"
+        className="flex flex-wrap items-center gap-1 text-muted-foreground"
       >
         Effort
         {EFFORT_OPTIONS.map((opt) => {

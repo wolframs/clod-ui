@@ -133,31 +133,64 @@ export function TranscriptHistory({ state, className }: TranscriptHistoryProps):
     );
   }
 
+  const foldedResults = foldToolResults(state.messages);
+
   return (
     <ol
       // Scroll-agnostic since PR #18d.1: the single scroll container lives in
       // App.tsx (useStickyBottom drives it); this list renders at natural height.
-      className={cn('flex w-full flex-col gap-3 p-6', className)}
+      className={cn('flex w-full flex-col gap-3 p-3 md:p-6', className)}
       data-test="transcript-history"
       data-state="ok"
       data-message-count={state.messages.length}
     >
-      {state.messages.filter(hasVisibleContent).map((message) => (
-        <li key={message.id}>
-          <ChatMessageView message={message} />
-        </li>
-      ))}
+      {state.messages
+        .filter((m) => hasVisibleContent(m, foldedResults))
+        .map((message) => (
+          <li key={message.id}>
+            <ChatMessageView message={message} foldedResults={foldedResults} />
+          </li>
+        ))}
     </ol>
   );
 }
 
 /**
+ * The CLI writes a tool's result into the *next* message, under the user
+ * role. Every result whose tool_use is somewhere in the conversation folds
+ * under that tool_use (PR #44); only a result with no parent at all stays a
+ * stray. Purely visual, like the per-message fold it extends.
+ */
+function foldToolResults(messages: readonly ChatMessage[]): Map<string, ToolResultBlock> {
+  const toolUseIds = new Set<string>();
+  for (const m of messages) {
+    for (const b of m.content) if (b.type === 'tool_use') toolUseIds.add(b.tool_use_id);
+  }
+  const folded = new Map<string, ToolResultBlock>();
+  for (const m of messages) {
+    for (const b of m.content) {
+      if (b.type === 'tool_result' && toolUseIds.has(b.tool_use_id)) {
+        folded.set(b.tool_use_id, b);
+      }
+    }
+  }
+  return folded;
+}
+
+/**
  * Newer CLIs write the model's thinking as a block with empty text and only a
  * signature. A message made only of those has nothing to show; it stays in
- * the data and leaves the view.
+ * the data and leaves the view. So does one made only of folded tool results.
  */
-function hasVisibleContent(message: ChatMessage): boolean {
-  return message.content.some((b) => b.type !== 'thinking' || b.text.trim() !== '');
+function hasVisibleContent(
+  message: ChatMessage,
+  foldedResults: ReadonlyMap<string, ToolResultBlock>,
+): boolean {
+  return message.content.some((b) => {
+    if (b.type === 'thinking') return b.text.trim() !== '';
+    if (b.type === 'tool_result') return !foldedResults.has(b.tool_use_id);
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -166,30 +199,24 @@ function hasVisibleContent(message: ChatMessage): boolean {
 
 export interface ChatMessageViewProps {
   message: ChatMessage;
+  /** Results that fold across messages; see `foldToolResults`. */
+  foldedResults?: ReadonlyMap<string, ToolResultBlock>;
 }
 
-export function ChatMessageView({ message }: ChatMessageViewProps): JSX.Element {
-  // Build a tool_use_id → ToolResultBlock index so we can fold tool_results
-  // under their matching tool_use blocks at render time. Pure visual; the
-  // underlying ChatMessage data is unchanged.
-  const toolResultsById = new Map<string, ToolResultBlock>();
-  for (const block of message.content) {
-    if (block.type === 'tool_result') {
-      toolResultsById.set(block.tool_use_id, block);
-    }
-  }
+export function ChatMessageView({ message, foldedResults }: ChatMessageViewProps): JSX.Element {
+  // tool_use_id → ToolResultBlock: results fold under their tool_use, and a
+  // result in this map renders nothing where it stands. Purely visual; the
+  // ChatMessage data is unchanged. Strays still render, so no data is lost —
+  // see StrayToolResultBlockView.
+  const toolResultsById = foldedResults ?? foldToolResults([message]);
 
-  // Render every block in source order *except* tool_result blocks, which we
-  // skip at the top level (they appear under their matching tool_use). Stray
-  // tool_result blocks (no matching tool_use in this message) still render
-  // standalone so we never lose data — see StrayToolResultBlockView.
   return (
     <article
       className={cn(
-        'flex flex-col gap-2 rounded-md border p-4 text-sm',
+        'flex min-w-0 flex-col gap-2 rounded-md border text-[15px] leading-relaxed [overflow-wrap:anywhere] md:p-4 md:text-sm',
         message.role === 'user'
-          ? 'border-sky-500/30 bg-sky-500/5'
-          : 'border-border bg-card text-foreground',
+          ? 'border-sky-500/30 bg-sky-500/5 p-3 max-md:ml-8'
+          : 'border-border bg-card px-1 py-2 text-foreground max-md:border-transparent max-md:bg-transparent',
       )}
       data-test="chat-message"
       data-role={message.role}
@@ -197,7 +224,7 @@ export function ChatMessageView({ message }: ChatMessageViewProps): JSX.Element 
     >
       <header className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         <span>{message.role === 'user' ? 'Human' : 'Claude'}</span>
-        <span className="font-mono opacity-60" title="line / byte offset in JSONL">
+        <span className="font-mono opacity-60 max-md:hidden" title="line / byte offset in JSONL">
           L{message.source.line_number} · B{message.source.byte_offset}
         </span>
       </header>
@@ -221,7 +248,7 @@ export function ChatMessageView({ message }: ChatMessageViewProps): JSX.Element 
 
 interface ContentBlockViewProps {
   block: ContentBlock;
-  toolResultsById: Map<string, ToolResultBlock>;
+  toolResultsById: ReadonlyMap<string, ToolResultBlock>;
   indexInMessage: number;
 }
 
@@ -248,13 +275,11 @@ function ContentBlockView({
       );
     }
     case 'tool_result':
-      // Skipped here; rendered under matching tool_use. If no parent
-      // exists in this message it falls through to the stray renderer.
-      // (We can't tell from this block alone whether it has a parent in
-      // the same message — that lookup happened in ChatMessageView. A
-      // tool_result that *does* have a parent in this message is in the
-      // map; one that doesn't is missing. We render the stray case.)
-      return <StrayToolResultBlockView block={block} />;
+      // Folded under its tool_use, here or in an earlier message. Without a
+      // parent it renders standalone, so no data is lost.
+      return toolResultsById.has(block.tool_use_id) ? null : (
+        <StrayToolResultBlockView block={block} />
+      );
   }
 }
 
@@ -356,7 +381,7 @@ function ToolUseBlockView({ block, result }: ToolUseBlockViewProps): JSX.Element
           <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400">ok</span>
         )}
       </button>
-      <div className="flex flex-col gap-2 p-3" hidden={collapsed}>
+      <div className={cn('flex flex-col gap-2 p-3', collapsed && 'hidden')} hidden={collapsed}>
         <section>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Input
@@ -397,9 +422,8 @@ function ToolUseBlockView({ block, result }: ToolUseBlockViewProps): JSX.Element
 // ---------------------------------------------------------------------------
 
 function StrayToolResultBlockView({ block }: { block: ToolResultBlock }): JSX.Element {
-  // A tool_result with no matching tool_use in the same message. Rendered
-  // standalone so data is never lost; the visual cue (orphan label) hints
-  // that the parent lives in a different message.
+  // A tool_result with no tool_use anywhere in the conversation. Rendered
+  // standalone so data is never lost.
   return (
     <article
       className={cn(

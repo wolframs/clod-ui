@@ -13,11 +13,15 @@ export interface ConversationRow {
   claude_session_id: string | null;
   cwd: string;
   created_at: number;
+  /** PR #45: the profile id; null = the engine's implicit profile. */
+  profile: string | null;
 }
 
 export interface CreateConversationInput {
   id: string;
   cwd: string;
+  /** PR #45: omitted = the implicit profile (stored NULL). */
+  profile?: string;
   /** Defaults to `Date.now()` when omitted. */
   created_at?: number;
 }
@@ -25,11 +29,12 @@ export interface CreateConversationInput {
 /** Insert a new conversation row. Throws on duplicate id. */
 export function createConversation(db: Database, input: CreateConversationInput): ConversationRow {
   const created_at = input.created_at ?? Date.now();
+  const profile = input.profile ?? null;
   db.run(
-    'INSERT INTO conversations (id, claude_session_id, cwd, created_at) VALUES (?, NULL, ?, ?)',
-    [input.id, input.cwd, created_at],
+    'INSERT INTO conversations (id, claude_session_id, cwd, created_at, profile) VALUES (?, NULL, ?, ?, ?)',
+    [input.id, input.cwd, created_at, profile],
   );
-  return { id: input.id, claude_session_id: null, cwd: input.cwd, created_at };
+  return { id: input.id, claude_session_id: null, cwd: input.cwd, created_at, profile };
 }
 
 /** Get a single conversation; returns null if absent. */
@@ -38,7 +43,7 @@ export function getConversation(db: Database, id: string): ConversationRow | nul
     .query<
       ConversationRow,
       [string]
-    >('SELECT id, claude_session_id, cwd, created_at FROM conversations WHERE id = ?')
+    >('SELECT id, claude_session_id, cwd, created_at, profile FROM conversations WHERE id = ?')
     .get(id);
   return row ?? null;
 }
@@ -54,6 +59,6 @@ export function listConversations(db: Database): ConversationRow[] {
     .query<
       ConversationRow,
       []
-    >('SELECT id, claude_session_id, cwd, created_at FROM conversations ORDER BY created_at DESC')
+    >('SELECT id, claude_session_id, cwd, created_at, profile FROM conversations ORDER BY created_at DESC')
     .all();
 }

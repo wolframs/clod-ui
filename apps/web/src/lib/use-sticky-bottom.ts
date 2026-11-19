@@ -139,6 +139,19 @@ export function useStickyBottom(opts: UseStickyBottomOptions): UseStickyBottomRe
     };
   }, [containerRef, thresholdPx, contentSignal]);
 
+  // The container itself can shrink: a phone's keyboard does that. Whoever was
+  // reading the latest line stays on it. Re-attached like the listener above,
+  // for the same reason.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (wasAtBottomRef.current) el.scrollTop = el.scrollHeight - el.clientHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [containerRef, contentSignal]);
+
   const scrollToBottom = (): void => {
     const el = containerRef.current;
     if (!el) return;

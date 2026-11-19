@@ -3,6 +3,26 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * The status bar is ours to clear only when we own the whole screen. In a
+   * browser tab the browser's bar sits above the page, yet an Android browser
+   * built on WebView (DuckDuckGo, Pixel 7, 2026-11-01) still reports the status
+   * bar as a top inset and hands the page that much too much height: a blank
+   * band above the top bar and the foot of the page below the screen edge. In
+   * a tab the inset therefore shrinks the page instead of padding it. Where a
+   * browser reports no inset, as Chrome does, both are zero.
+   */
+  :root {
+    --safe-top: 0px;
+    --tab-overhang: env(safe-area-inset-top, 0px);
+  }
+  @media (display-mode: standalone), (display-mode: fullscreen) {
+    :root {
+      --safe-top: env(safe-area-inset-top, 0px);
+      --tab-overhang: 0px;
+    }
+  }
+
   :root {
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;

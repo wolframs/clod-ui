@@ -5,6 +5,21 @@ import { parseTurnBody } from '../src/parse-turn-body.ts';
 const BASE = { turn_id: 't-1', user_message: 'hello', cwd: '/tmp/c' };
 
 describe('parseTurnBody', () => {
+  test('profile (PR #45): an id rides beside the request, never on it', () => {
+    const parsed = parseTurnBody('conv-1', { ...BASE, profile: 'lab' });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.profile).toBe('lab');
+      expect('profile' in parsed.value).toBe(false);
+    }
+    const absent = parseTurnBody('conv-1', BASE);
+    expect(absent.ok && absent.profile).toBeUndefined();
+    for (const bad of ['', 'Lab', 'a/b', 'x'.repeat(33), 7, null]) {
+      const r = parseTurnBody('conv-1', { ...BASE, profile: bad });
+      expect(r.ok).toBe(false);
+    }
+  });
+
   test('accepts a valid thinking_effort and carries it on the TurnRequest', () => {
     const parsed = parseTurnBody('conv-1', { ...BASE, thinking_effort: 'xhigh' });
     expect(parsed.ok).toBe(true);

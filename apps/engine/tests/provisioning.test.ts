@@ -56,6 +56,18 @@ describe('ensureProvisioned', () => {
     expect(existsSync(join(store.conversationDir(CONV_A), 'scratch'))).toBe(true);
   });
 
+  test('a profile (PR #45) is stored; cwd null is the own dir even over defaultCwd', async () => {
+    const shared = join(root, 'project-repo');
+    const result = await ensureProvisioned(
+      { store, db, defaultCwd: shared },
+      { convId: CONV_A, cwd: null, profile: 'plain' },
+    );
+    expect(result.cwd).toBe(join(store.conversationDir(CONV_A), 'cwd'));
+    expect(getConversation(db, CONV_A)?.profile).toBe('plain');
+    const events = await store.readAll(CONV_A);
+    expect(events[0]).toMatchObject({ kind: 'conversation.created', profile: 'plain' });
+  });
+
   test('second call on same id is a no-op (created:false, no duplicate manifest line)', async () => {
     await ensureProvisioned({ store, db }, { convId: CONV_A });
     const result2 = await ensureProvisioned({ store, db }, { convId: CONV_A });

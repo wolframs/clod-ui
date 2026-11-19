@@ -308,6 +308,48 @@ describe('TranscriptHistory: content blocks', () => {
   });
 });
 
+// PR #44: the CLI writes a result into the next message, under the user role.
+describe('tool results fold across messages', () => {
+  const useBlock = { type: 'tool_use', tool_use_id: 'tu9', name: 'Grep', input: {} } as const;
+  const resultBlock = {
+    type: 'tool_result',
+    tool_use_id: 'tu9',
+    content: 'found it',
+    is_error: false,
+  } as const;
+
+  test('a result in the next message folds under its tool_use; its message leaves the view', () => {
+    const state: TranscriptState = {
+      status: 'ok',
+      messages: [
+        mkMessage({ role: 'assistant', content: [useBlock] }),
+        mkMessage({ role: 'user', content: [resultBlock] }),
+      ],
+      meta: { line_count: 2, skipped: [] },
+    };
+    const html = renderToString(<TranscriptHistory state={state} />);
+    expect(html).toContain('data-has-result="true"');
+    expect(html).toContain('found it');
+    expect(html).not.toContain('data-stray="true"');
+    expect(html).not.toContain('data-role="user"');
+  });
+
+  test('text beside a folded result keeps its message', () => {
+    const state: TranscriptState = {
+      status: 'ok',
+      messages: [
+        mkMessage({ role: 'assistant', content: [useBlock] }),
+        mkMessage({ role: 'user', content: [resultBlock, { type: 'text', text: 'carry on' }] }),
+      ],
+      meta: { line_count: 2, skipped: [] },
+    };
+    const html = renderToString(<TranscriptHistory state={state} />);
+    expect(html).toContain('data-role="user"');
+    expect(html).toContain('carry on');
+    expect(html).not.toContain('data-stray="true"');
+  });
+});
+
 // PR #34: user-sent images render as data URIs straight from the transcript.
 describe('ImageBlockView (via TranscriptHistory)', () => {
   test('image block renders an <img> with the data URI and markers', () => {

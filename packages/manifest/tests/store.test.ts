@@ -369,4 +369,24 @@ describe('ManifestStore.fold', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('conversation.created carries an optional profile into the fold (PR #45)', async () => {
+    const root = mkRoot();
+    try {
+      const store = new ManifestStore(root);
+      const CONV_B = '22222222-2222-4222-8222-222222222222';
+      const ev = await store.appendEvent(CONV_A, {
+        kind: 'conversation.created',
+        profile: 'lab',
+      });
+      expect(ev).toMatchObject({ kind: 'conversation.created', profile: 'lab' });
+      expect(store.fold(await store.readAll(CONV_A)).profile).toBe('lab');
+      // Absent profile: no key on disk, none in the fold.
+      const plain = await store.appendEvent(CONV_B, { kind: 'conversation.created' });
+      expect('profile' in plain).toBe(false);
+      expect(store.fold(await store.readAll(CONV_B)).profile).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

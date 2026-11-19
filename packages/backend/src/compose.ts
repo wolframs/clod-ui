@@ -28,7 +28,10 @@ export const THINKING_EFFORT_MAP: Readonly<
 };
 
 export interface ComposeOptions {
-  /** Override the `claude` binary path / name (default: 'claude'). */
+  /**
+   * Override the `claude` binary path / name (default: 'claude'). A turn's
+   * own `claude_binary` (PR #45) wins over it.
+   */
   claudeBinary?: string;
   /**
    * Raw-flags escape hatch (architecture Task 5.8). Appended verbatim *after*
@@ -67,7 +70,7 @@ export interface ComposeResult {
  * used with `--print`, otherwise the CLI rejects the combination.
  */
 export function compose(req: TurnRequest, opts: ComposeOptions = {}): ComposeResult {
-  const binary = opts.claudeBinary ?? 'claude';
+  const binary = req.claude_binary ?? opts.claudeBinary ?? 'claude';
   const argv: string[] = [
     binary,
     '-p',

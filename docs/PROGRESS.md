@@ -1,6 +1,6 @@
 # Progress at a glance
 
-_Last updated: 2026-10-27, after PR #43. Update this file in every
+_Last updated: 2026-11-05, after PR #45. Update this file in every
 "land PR #N" docs commit — it is the one-screen answer to "where is
 this project?"; the details live in the links, not here._
 
@@ -40,10 +40,10 @@ CI       fast / deep / nightly tiers        █████░░░  fast+deep 
 
 ## The numbers
 
-- **51 PRs landed** (catalog: [`plans/INDEX.md`](../plans/INDEX.md))
-- **52 / 52 spine tests live**, 21 files ([`docs/SPINE.md`](./SPINE.md))
+- **53 PRs landed** (catalog: [`plans/INDEX.md`](../plans/INDEX.md))
+- **60 / 60 spine tests live**, 22 files ([`docs/SPINE.md`](./SPINE.md))
 - **9 invariants** pinned by tests ([`docs/INVARIANTS.md`](./INVARIANTS.md))
-- **813 bun + 117 vitest tests**, 0 fail, gating every commit
+- **877 bun + 130 vitest tests + 14 Playwright**, 0 fail, gating every commit
 - Architecture spec current as of PR #23
   ([v3 + drift ledger](../plans/2026-06-10-clod-ui-architecture-v3.md))
 
@@ -73,9 +73,13 @@ Each conversation keeps one warm CLI process between turns (PR #39):
 SessionStart hooks run once, not per turn; the usage badge shows the
 turn's cache hit, read and written tokens. Retirement is bounded
 (EOF → SIGTERM → SIGKILL, until the whole process group is gone) and
-engine shutdown waits for it (PR #40/#41/#43). The model picker lists
+engine shutdown waits for it (PR #40/#41/#43). Below 768 px the UI is a phone layout (PR #44): drawer, composer box, controls sheet, the URL hash holds the conversation, Back closes what is open, and it installs to a home screen. The model picker lists
 the CLI's own models (name · resolved id) and effort is the CLI's
 `/effort` scale, Auto…Max plus Ultracode, gated per model (PR #42).
+Conversation profiles (PR #45): a registry file names binaries and
+directories (an agent's own wrapper and directory, plain Claude); a picker beside + New
+chooses the next conversation's, which keeps it for good; non-default
+profiles carry a small label. No file, no picker — as before.
 
 ## Up next (the completion goal queue)
 

@@ -6,6 +6,7 @@ import { App } from './App.tsx';
 import { ErrorBoundary } from './components/error-boundary.tsx';
 import './index.css';
 import { EngineProvider } from './lib/engine-context.tsx';
+import { dropStaleBackEntry } from './lib/use-back-dismiss.ts';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) {
@@ -21,6 +22,8 @@ const baseUrl =
   `${window.location.protocol}//${window.location.host}`;
 const transport = new LocalHttpTransport({ baseUrl });
 const client = createClient({ transport });
+
+dropStaleBackEntry();
 
 createRoot(rootEl).render(
   <StrictMode>

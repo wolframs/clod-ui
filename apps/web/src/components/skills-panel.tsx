@@ -30,7 +30,7 @@ export function SkillsPanel(props: SkillsPanelProps): React.ReactElement | null 
     >
       <div
         onClick={(ev) => ev.stopPropagation()}
-        className="flex max-h-[80%] w-[28rem] flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-lg"
+        className="flex max-h-[80%] w-[28rem] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-lg"
       >
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-foreground">Skills</h2>

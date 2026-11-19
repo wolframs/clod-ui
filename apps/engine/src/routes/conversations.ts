@@ -53,6 +53,7 @@ export function registerConversationsRoutes(app: Hono, deps: ConversationsRouteD
         updated_at,
         ...(title !== undefined ? { title } : {}),
         ...(row.claude_session_id ? { claude_session_id: row.claude_session_id } : {}),
+        ...(row.profile !== null ? { profile: row.profile } : {}),
       };
       summaries.push(summary);
     }

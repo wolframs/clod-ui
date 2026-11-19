@@ -189,6 +189,7 @@ export class ManifestStore {
         case 'conversation.created':
           state.created_at = ev.ts;
           if (ev.title !== undefined) state.title = ev.title;
+          if (ev.profile !== undefined) state.profile = ev.profile;
           break;
         case 'conversation.titled':
           state.title = ev.title;

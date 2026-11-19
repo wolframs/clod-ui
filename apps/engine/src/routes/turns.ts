@@ -3,6 +3,9 @@
  *
  * The richest route in the engine. Choreographs:
  *
+ *   - Profiles (PR #45): every turn resolves its conversation's profile in
+ *     the current registry — binary + cwd, or 400 / 409 / 403 before
+ *     anything is provisioned or spawned (profiles.ts `resolveTurnProfile`).
  *   - Persistence provisioning (PR #6): cwd anchoring + resume_session_id
  *     injection on first turn.
  *   - Concurrent-send rejection (T1.08): only one active turn per conv;
@@ -39,6 +42,7 @@ import { getConversation } from '../db/index.ts';
 import type { DiagnosticsRing } from '../diagnostics.ts';
 import { maybeTitle } from '../maybe-title.ts';
 import { parseTurnBody } from '../parse-turn-body.ts';
+import { resolveTurnProfile, type ProfileSource } from '../profiles.ts';
 import { ensureProvisioned, recordSessionId, type ProvisioningContext } from '../provisioning.ts';
 import type { Titler } from '../titler.ts';
 import type { EnvelopeIdSource } from '../wire.ts';
@@ -66,6 +70,8 @@ export interface TurnsRouteDeps {
   titler: Titler | null;
   /** Optional per-turn diagnostics ring (PR #32); null = zero recording work. */
   diagnostics: DiagnosticsRing | null;
+  /** Profile registry (PR #45), read on every turn. */
+  profiles: ProfileSource;
 }
 
 export function registerTurnRoutes(app: Hono, deps: TurnsRouteDeps): void {
@@ -80,6 +86,7 @@ export function registerTurnRoutes(app: Hono, deps: TurnsRouteDeps): void {
     transcripts,
     titler,
     diagnostics,
+    profiles,
   } = deps;
   /** turn_id → assistant text accumulated from deltas. Cleared on terminator. */
   const turnAssistantText = new Map<string, string>();
@@ -98,20 +105,37 @@ export function registerTurnRoutes(app: Hono, deps: TurnsRouteDeps): void {
     if (!parsed.ok) return c.json({ error: parsed.error }, 400);
     const req = parsed.value;
 
+    // Profile (PR #45): the conversation's own (fixed at creation), or for a
+    // new one the body's / the registry default — resolved in the registry
+    // as it stands now, so removing an entry switches it off at the next turn.
+    const row = persistence ? getConversation(persistence.db, convId) : null;
+    const resolved = resolveTurnProfile({
+      registry: profiles.current().registry,
+      row: row ? { profile: row.profile } : undefined,
+      requested: parsed.profile,
+      // The same-origin guard has already matched a present Origin to Host.
+      hasOrigin: (c.req.header('origin') ?? '') !== '',
+    });
+    if (!resolved.ok) return c.json(resolved.body, resolved.status);
+    const { profile } = resolved;
+    if (profile.binary !== undefined) req.claude_binary = profile.binary;
+    if (!persistence && typeof profile.cwd === 'string') req.cwd = profile.cwd;
+
     // Persistence: provision the conversation directory + DB row on first
     // turn, and inject a known claude_session_id as resume_session_id when
     // the caller didn't already supply one.
     if (persistence) {
       try {
-        const prov = await ensureProvisioned(persistence, { convId });
+        const prov = await ensureProvisioned(persistence, {
+          convId,
+          // The implicit profile keeps the pre-#45 path exactly: NULL, env cwd.
+          ...(profile.implicit ? {} : { cwd: profile.cwd ?? null, profile: profile.id }),
+        });
         // Re-anchor the spawn cwd to the conversation's directory so
         // attachments + tool calls land in the right place.
         req.cwd = prov.cwd;
-        if (req.resume_session_id === undefined) {
-          const row = getConversation(persistence.db, convId);
-          if (row?.claude_session_id) {
-            req.resume_session_id = row.claude_session_id;
-          }
+        if (req.resume_session_id === undefined && row?.claude_session_id) {
+          req.resume_session_id = row.claude_session_id;
         }
       } catch (err) {
         return c.json({ error: { kind: 'provisioning_failed', detail: String(err) } }, 500);

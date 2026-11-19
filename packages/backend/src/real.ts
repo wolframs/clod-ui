@@ -298,8 +298,9 @@ export class RealClaudeBackend implements ClaudeBackend {
    */
   async *startTurn(req: TurnRequest): AsyncIterable<BackendEvent> {
     // Short-circuit if the last probe said `missing`. We do NOT re-probe here
-    // — health() runs on its own refresh loop.
-    if (this.cached.cli === 'missing') {
+    // — health() runs on its own refresh loop. The probe is of the
+    // backend-wide binary: a turn with its own (PR #45) spawns regardless.
+    if (this.cached.cli === 'missing' && req.claude_binary === undefined) {
       yield {
         kind: 'turn.error',
         turn_id: req.turn_id,
@@ -339,7 +340,10 @@ export class RealClaudeBackend implements ClaudeBackend {
       if (handle.idleTimer !== null) clearTimeout(handle.idleTimer);
       handle.idleTimer = null;
     } else {
-      if (existing !== undefined) void this.retire(existing);
+      // Sol (2026-11-05, engine check 4): the replacement resumes the same session and
+      // would race the old process's lock; wait for the retirement ladder (≈2.5 s worst
+      // case) before spawning.
+      if (existing !== undefined) await this.retire(existing);
       const keepWarm = this.warmIdleMs > 0 && this.makeWarmRoom();
       try {
         handle = this.spawnProcess(composed, keepWarm);

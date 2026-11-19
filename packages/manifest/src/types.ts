@@ -33,8 +33,8 @@ export type ThinkingEffortName =
   | 'ultrathink';
 
 export type ManifestEvent = ManifestEventBase &
-  (
-    | { kind: 'conversation.created'; title?: string }
+  /** `profile` (PR #45): absent = the engine's implicit profile. */
+  (| { kind: 'conversation.created'; title?: string; profile?: string }
     | { kind: 'conversation.titled'; title: string }
     | { kind: 'session.captured'; session_id: string }
     | {
@@ -90,6 +90,8 @@ export interface ConversationState {
   title?: string;
   created_at?: number;
   claude_session_id?: string;
+  /** Profile the conversation was created on (PR #45); absent = implicit. */
+  profile?: string;
   model?: string;
   thinking_effort?: ThinkingEffortName;
   system_prompt?: { mode: 'append' | 'override'; text: string };

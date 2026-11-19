@@ -17,6 +17,8 @@ import { z } from 'zod';
  *   `created_at` on an empty manifest.
  * - `claude_session_id` — mirror of the SQLite column; populated after the
  *   first `system.init`.
+ * - `profile` — the profile the conversation was created on (PR #45);
+ *   absent for conversations on the engine's implicit profile.
  */
 export const ConversationSummarySchema = z.object({
   conv_id: z.string().min(1),
@@ -24,6 +26,7 @@ export const ConversationSummarySchema = z.object({
   created_at: z.number().int().nonnegative(),
   updated_at: z.number().int().nonnegative(),
   claude_session_id: z.string().optional(),
+  profile: z.string().optional(),
 });
 
 export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;

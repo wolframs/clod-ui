@@ -28,6 +28,13 @@ export const MIGRATIONS: readonly Migration[] = [
         ON conversations(claude_session_id);
     `,
   },
+  {
+    version: 2,
+    description: 'conversations.profile (PR #45); NULL = the implicit env profile',
+    up: `
+      ALTER TABLE conversations ADD COLUMN profile TEXT;
+    `,
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.length;

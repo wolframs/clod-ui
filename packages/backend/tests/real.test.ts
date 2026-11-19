@@ -414,6 +414,23 @@ describe('RealClaudeBackend.startTurn (via shim)', () => {
     }
   });
 
+  test("a turn's own binary (PR #45) runs even when the backend-wide one is missing", async () => {
+    const shim = writeTurnShim(shimDir, {
+      stdoutLines: [
+        JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-p' }),
+        JSON.stringify({ type: 'result', subtype: 'success' }),
+      ],
+    });
+    const be = new RealClaudeBackend({ claudeBinary: join(shimDir, 'nonexistent-claude') });
+    try {
+      await (be as unknown as { refresh(): Promise<void> }).refresh();
+      const events = await collect(be.startTurn({ ...req, claude_binary: shim }));
+      expect(events.map((e) => e.kind)).toEqual(['system.init', 'turn.result']);
+    } finally {
+      await be.stop();
+    }
+  });
+
   test('cancel() during a sleeping turn terminates the subprocess within budget', async () => {
     // Shim emits a "I'm alive" init line BEFORE the sleep so the test can
     // synchronise cancel() against the actual subprocess having spawned and

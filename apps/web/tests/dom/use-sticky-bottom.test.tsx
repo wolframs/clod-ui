@@ -10,7 +10,7 @@
 
 import { renderHook, act } from '@testing-library/react';
 import { type RefObject } from 'react';
-import { describe, expect, test, beforeEach } from 'vitest';
+import { describe, expect, test, beforeEach, vi } from 'vitest';
 
 import { useStickyBottom } from '../../src/lib/use-sticky-bottom';
 
@@ -168,5 +168,51 @@ describe('useStickyBottom', () => {
     expect(() => {
       renderHook(() => useStickyBottom({ containerRef: ref, contentSignal: 0 }));
     }).not.toThrow();
+  });
+});
+
+// PR #44: a phone's keyboard shrinks the container itself.
+describe('useStickyBottom when the container resizes', () => {
+  function stubResizeObserver(): { fire: () => void } {
+    let callback: () => void = () => {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          callback = cb;
+        }
+        observe(): void {}
+        disconnect(): void {}
+      },
+    );
+    return { fire: () => callback() };
+  }
+
+  test('at the bottom: stays there', () => {
+    const observer = stubResizeObserver();
+    const el = makeContainer(1000, 600);
+    const ref: RefObject<HTMLElement | null> = { current: el };
+    renderHook(() => useStickyBottom({ containerRef: ref, contentSignal: 0 }));
+
+    el._clientHeight = 300; // keyboard up
+    observer.fire();
+    expect(el.scrollTop).toBe(700);
+    vi.unstubAllGlobals();
+  });
+
+  test('scrolled up: stays where the reader is', () => {
+    const observer = stubResizeObserver();
+    const el = makeContainer(1000, 600);
+    const ref: RefObject<HTMLElement | null> = { current: el };
+    renderHook(() => useStickyBottom({ containerRef: ref, contentSignal: 0 }));
+    act(() => {
+      el.scrollTop = 100;
+      el.dispatchEvent(new Event('scroll'));
+    });
+
+    el._clientHeight = 300;
+    observer.fire();
+    expect(el.scrollTop).toBe(100);
+    vi.unstubAllGlobals();
   });
 });

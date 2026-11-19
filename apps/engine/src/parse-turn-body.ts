@@ -9,9 +9,19 @@
  * error string the caller surfaces as 400.
  */
 import type { TurnRequest } from '@clod-ui/backend';
-import { ThinkingEffortSchema, normalizeThinkingEffort } from '@clod-ui/contracts';
+import {
+  PROFILE_ID_PATTERN,
+  ThinkingEffortSchema,
+  normalizeThinkingEffort,
+} from '@clod-ui/contracts';
 
-export type ParsedTurn = { ok: true; value: TurnRequest } | { ok: false; error: string };
+/**
+ * `profile` (PR #45) is the conversation's, not the backend's: it travels
+ * beside the `TurnRequest`, and the route resolves it to `claude_binary`.
+ */
+export type ParsedTurn =
+  | { ok: true; value: TurnRequest; profile?: string }
+  | { ok: false; error: string };
 
 export function parseTurnBody(convId: string, body: Record<string, unknown>): ParsedTurn {
   const turnId = body['turn_id'];
@@ -106,6 +116,15 @@ export function parseTurnBody(convId: string, body: Record<string, unknown>): Pa
       ...(a.content_type !== undefined && { content_type: a.content_type }),
     }));
     if (arr.length > 0) req.attachments = arr;
+  }
+  // Profile (PR #45): an id or a 400 — the same strict stance; a profile
+  // dropped silently would run the turn on a different binary.
+  if (body['profile'] !== undefined) {
+    const profile = body['profile'];
+    if (typeof profile !== 'string' || !PROFILE_ID_PATTERN.test(profile)) {
+      return { ok: false, error: 'profile must be a profile id ([a-z0-9-]{1,32})' };
+    }
+    return { ok: true, value: req, profile };
   }
   return { ok: true, value: req };
 }

@@ -49,12 +49,12 @@ export function TurnView({ state, className }: TurnViewProps): JSX.Element {
     <div
       // Scroll-agnostic since PR #18d.1: the single scroll container lives in
       // App.tsx; this view renders at natural height below TranscriptHistory.
-      className={cn('flex w-full flex-col gap-4 p-6', className)}
+      className={cn('flex w-full flex-col gap-3 p-3 md:gap-4 md:p-6', className)}
       data-test="turn-view"
       data-state={state.status}
       data-turn-id={state.turn_id}
     >
-      <header className="flex items-center justify-between gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <TurnStatusPill
           status={state.status}
           {...(state.escalation !== undefined ? { escalation: state.escalation } : {})}
@@ -72,7 +72,10 @@ export function TurnView({ state, className }: TurnViewProps): JSX.Element {
           </span>
         ) : null}
         {state.session_id !== undefined ? (
-          <span className="font-mono text-xs text-muted-foreground" title="Claude session id">
+          <span
+            className="font-mono text-xs text-muted-foreground max-md:hidden"
+            title="Claude session id"
+          >
             {state.session_id.slice(0, 8)}
           </span>
         ) : null}
@@ -113,7 +116,7 @@ export function AssistantMessage({ text, complete }: AssistantMessageProps): JSX
   // after the parsed tree (it can't live inside it — plan §3.4).
   return (
     <article
-      className="rounded-md border border-border bg-card p-4 text-sm text-foreground"
+      className="min-w-0 rounded-md border border-border bg-card px-1 py-2 text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere] max-md:border-transparent max-md:bg-transparent md:p-4 md:text-sm"
       data-test="assistant-message"
       data-streaming={complete ? 'false' : 'true'}
     >
@@ -206,7 +209,7 @@ export function ToolCard({ tool }: ToolCardProps): JSX.Element {
         </span>
         <ToolStatusIndicator status={tool.status} />
       </button>
-      <div className="flex flex-col gap-2 p-3" hidden={collapsed}>
+      <div className={cn('flex flex-col gap-2 p-3', collapsed && 'hidden')} hidden={collapsed}>
         <section>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Input

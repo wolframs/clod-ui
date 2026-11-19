@@ -47,3 +47,49 @@ describe('Composer attachments', () => {
     expect(onRemoveAttachment).toHaveBeenCalledWith('a.png');
   });
 });
+
+describe('Composer on a phone (PR #44)', () => {
+  const type = (container: HTMLElement, value: string): HTMLTextAreaElement => {
+    const input = container.querySelector('[data-test="composer-input"]') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value } });
+    return input;
+  };
+
+  it('Enter does not send; the keyboard gives a newline', () => {
+    const onSubmit = vi.fn();
+    const { container } = render(<Composer {...baseProps} onSubmit={onSubmit} compact />);
+    const input = type(container, 'draft');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('the send button sends and drops the keyboard', () => {
+    const onSubmit = vi.fn();
+    const { container } = render(<Composer {...baseProps} onSubmit={onSubmit} compact />);
+    const input = type(container, 'draft');
+    input.focus();
+    fireEvent.click(container.querySelector('[data-test="composer-send"]') as HTMLElement);
+    expect(onSubmit).toHaveBeenCalledWith('draft');
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('stop takes the place of send while a turn runs', () => {
+    const { container } = render(
+      <Composer
+        {...baseProps}
+        turnState={{
+          status: 'streaming',
+          turn_id: 't1',
+          assistant_text: '',
+          assistant_complete: false,
+          thinking_text: '',
+          thinking_complete: false,
+          tools: [],
+        }}
+        compact
+      />,
+    );
+    expect(container.querySelector('[data-test="composer-cancel"]')).not.toBeNull();
+    expect(container.querySelector('[data-test="composer-send"]')).toBeNull();
+  });
+});

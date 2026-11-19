@@ -5,7 +5,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wolframs/clod-ui/actions/workflows/fast.yml"><img alt="ci:fast" src="https://github.com/wolframs/clod-ui/actions/workflows/fast.yml/badge.svg"></a>
   <img alt="Bun 1.3.13" src="https://img.shields.io/badge/bun-1.3.13-f9f1e1?logo=bun&logoColor=black">
   <img alt="Claude Code CLI" src="https://img.shields.io/badge/runs%20on-Claude%20Code%20CLI-d97757">
   <a href="./LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-blue"></a>
@@ -61,6 +60,12 @@ from the CLI's own session transcripts, which the engine tails.
 - ♨️ **Warm processes.** One CLI per conversation between turns. The usage
   badge shows the prompt cache: share read, tokens read, tokens written.
   Retiring one stops its whole process group, bounded to ~2.5s.
+- 📱 **Phone layout.** Below 768 px: a drawer for the sidebar, a composer
+  box, a sheet for the controls. The URL hash holds the conversation, Back
+  closes what is open, and it installs to a home screen.
+- 🗂️ **Profiles.** A registry file names binaries and directories; a picker
+  beside + New chooses the next conversation's, which keeps it for good.
+  No file, no picker.
 - 📎 **Attachments.** Drag files into the composer; images go to the model
   as base64 blocks.
 - ⚙️ **Panels for the rest.** Claude Code's `settings.json` behind a diff
@@ -79,8 +84,8 @@ when it is missing.
 - **Claude Code CLI** on `PATH`, installed and authenticated. See
   [Anthropic's install docs](https://docs.claude.com/en/docs/claude-code/quickstart).
   Clod UI stores no credentials of its own; it inherits the CLI's.
-- Developed on macOS. The fast gate also runs on Linux in GitHub Actions.
-  Windows is untested.
+- Developed on macOS and Linux. Windows is untested. There is no hosted CI;
+  `bun run ci:fast` is the gate.
 
 ## Run it
 
@@ -106,7 +111,18 @@ none of them are secrets.
 | `CLOD_UI_WARM_IDLE_MS`     | How long a conversation's CLI process waits for its next turn (default 1h); `0` = one per turn.  |
 | `CLOD_UI_WARM_MAX`         | Most CLI processes kept warm at once (default 4); the least recently used idle one goes first.   |
 | `CLOD_UI_ALLOWED_ORIGINS`  | Extra origins (comma-separated) the same-origin guard accepts, e.g. a Vite dev server.           |
+| `CLOD_UI_PROFILES`         | Conversation-profile registry file (default `<app-data>/profiles.json`; none = one profile).     |
 | `CLOD_UI_SWEEPER`          | Attachment sweeper: unset = off, `delete` = really unlink, anything else = dry run.              |
+
+**Profiles.** A registry file lets one page run conversations on different
+binaries and directories — `{ "default": "plain", "profiles": [{ "id":
+"plain", "label": "plain Claude", "binary": "claude", "cwd": null }] }`
+(`cwd: null` = the conversation's own directory; `"require_browser": true`
+refuses turns that carry no `Origin`). A conversation takes its profile on its
+first turn and keeps it; removing an entry switches it off at the next turn
+(409). The engine re-reads the file when it changes and keeps the last good
+one if an edit does not parse. Details:
+[`plans/2026-11-05-clod-ui-pr45-profiles-v1.md`](./plans/2026-11-05-clod-ui-pr45-profiles-v1.md).
 
 The engine binds `127.0.0.1` only. To reach it from other devices, put a
 proxy in front that keeps the `Host` header (Tailscale Serve does). Writes and
@@ -179,7 +195,7 @@ packages/
                MockEngineServer, typed test client, assertions, tape recorder.
 
 tests/
-  spine/       The spine contracts (T1.01–T1.20), catalogued in docs/SPINE.md.
+  spine/       The spine contracts (T1.01–T1.22), catalogued in docs/SPINE.md.
   e2e/         Playwright deep tier.
   fixtures/cli-tapes/   Captured CLI tapes.
 ```
